@@ -77,6 +77,7 @@ function overlayCoordinates(
 
 interface TestPatternViewerProps {
   projectName: string;
+  workspaceMode: 'pixel-mask' | 'wiring';
   screenConfig: ScreenConfig;
   onScreenConfigChange: React.Dispatch<React.SetStateAction<ScreenConfig>>;
   onScreenSummariesChange: (summaries: ScreenHeaderSummary[]) => void;
@@ -251,6 +252,7 @@ function renderProjectPreview(screen: ScreenInstance, preset: CabinetPreset): st
  */
 export function TestPatternViewer({
   projectName,
+  workspaceMode,
   screenConfig,
   onScreenConfigChange,
   onScreenSummariesChange,
@@ -1686,10 +1688,10 @@ export function TestPatternViewer({
     : null;
 
   return (
-    <section className={`pattern-workspace${importStatus ? ' has-import-status' : ''}`}>
+    <section className={`pattern-workspace is-${workspaceMode}${importStatus ? ' has-import-status' : ''}`}>
       <div className="workspace-title">
         <div>
-          <h1>LED screen</h1>
+          <h1>{workspaceMode === 'wiring' ? 'Расключение' : 'Пиксельная маска'}</h1>
           <span>{widthPx} × {heightPx} px · {(widthMm / 1000).toFixed(2)} × {(heightMm / 1000).toFixed(2)} м</span>
         </div>
         <div className="zoom-controls" aria-label="Масштаб холста" data-history-revision={historyRevision}>
@@ -1728,7 +1730,7 @@ export function TestPatternViewer({
 
       <div className="pattern-layout">
         <aside className="pattern-controls">
-          <fieldset>
+          <fieldset className="pixel-mask-control">
             <legend>Подписи и логотип</legend>
             <label>
               Подпись экрана:{' '}
@@ -1843,26 +1845,26 @@ export function TestPatternViewer({
             )}
           </fieldset>
 
-          <p className="field-hint">
+          <p className="field-hint pixel-mask-control">
             Выберите экран на холсте, чтобы параметры в левой панели применялись к нему.
             Новый экран создаётся с базовой раскладкой 6 × 4 кабинета.
           </p>
           <button
             type="button"
-            className={`edit-screen-button${isEditingScreen ? ' is-active' : ''}`}
+            className={`edit-screen-button pixel-mask-control${isEditingScreen ? ' is-active' : ''}`}
             onClick={() => setIsEditingScreen((current) => !current)}
           >
             {isEditingScreen ? 'Завершить редактирование' : 'Редактировать экран'}
           </button>
           {isEditingScreen && (
-            <p className="field-hint">
+            <p className="field-hint pixel-mask-control">
               Правый клик по кабинету выбранного экрана удаляет его; повторный правый клик возвращает кабинет.
             </p>
           )}
-          <button type="button" onClick={() => exportMask(false)}>
+          <button type="button" className="pixel-mask-control" onClick={() => exportMask(false)}>
             Экспортировать маску PNG
           </button>
-          <button type="button" disabled={!selectedDataScreen?.processor} onClick={() => exportMask(true)}>
+          <button type="button" className="wiring-control" disabled={!selectedDataScreen?.processor} onClick={() => exportMask(true)}>
             Экспортировать PNG с путями
           </button>
           <fieldset className="project-export-panel">
@@ -1879,12 +1881,12 @@ export function TestPatternViewer({
               масок и расключения.
             </p>
           </fieldset>
-          <p className="field-hint">
+          <p className="field-hint pixel-mask-control">
             Выбранный паттерн сохраняется в установленных кабинетах; пустые ячейки
             прозрачные. Размер файла: {widthPx} × {heightPx} px.
           </p>
 
-          <fieldset>
+          <fieldset className="pixel-mask-control">
             <legend>Паттерн</legend>
             <p className="field-hint">
               Шахматка строится по кабинетам: одна клетка равна одному кабинету.
@@ -1931,7 +1933,7 @@ export function TestPatternViewer({
             </label>
           </fieldset>
 
-          <fieldset>
+          <fieldset className="pixel-mask-control">
             <legend>Наложение</legend>
             <label>
               <input
@@ -1961,12 +1963,12 @@ export function TestPatternViewer({
             </label>
           </fieldset>
 
-          <div className="path-planning-tabs" role="tablist" aria-label="Тип инженерной схемы">
+          <div className="path-planning-tabs wiring-control" role="tablist" aria-label="Тип инженерной схемы">
             <button type="button" role="tab" aria-selected={pathPanelMode === 'data'} className={pathPanelMode === 'data' ? 'is-active' : ''} onClick={() => { setPathPanelMode('data'); setIsEditingPowerPath(false); }}>Сигнал</button>
             <button type="button" role="tab" aria-selected={pathPanelMode === 'power'} className={pathPanelMode === 'power' ? 'is-active' : ''} onClick={() => { setPathPanelMode('power'); setIsEditingDataPath(false); }}>Питание</button>
           </div>
 
-          {pathPanelMode === 'data' && <fieldset className="data-path-panel">
+          {pathPanelMode === 'data' && <fieldset className="data-path-panel wiring-control">
             <legend>Data path mapping</legend>
             {!selectedDataScreen ? (
               <p className="field-hint">Выберите экран на рабочей области.</p>
@@ -2054,19 +2056,21 @@ export function TestPatternViewer({
           </fieldset>}
 
           {pathPanelMode === 'power' && selectedDataScreen && selectedDataPreset && (
-            <PowerPathPlanner
-              plan={selectedDataScreen.powerPlan}
-              screenConfig={selectedDataScreen.screenConfig}
-              preset={selectedDataPreset}
-              onChange={updatePowerPlan}
-              activeCircuitId={activePowerCircuitId}
-              isEditing={isEditingPowerPath}
-              onActiveCircuitChange={setActivePowerCircuitId}
-              onEditingChange={(editing) => {
-                setIsEditingPowerPath(editing);
-                if (editing) setIsEditingDataPath(false);
-              }}
-            />
+            <div className="wiring-control">
+              <PowerPathPlanner
+                plan={selectedDataScreen.powerPlan}
+                screenConfig={selectedDataScreen.screenConfig}
+                preset={selectedDataPreset}
+                onChange={updatePowerPlan}
+                activeCircuitId={activePowerCircuitId}
+                isEditing={isEditingPowerPath}
+                onActiveCircuitChange={setActivePowerCircuitId}
+                onEditingChange={(editing) => {
+                  setIsEditingPowerPath(editing);
+                  if (editing) setIsEditingDataPath(false);
+                }}
+              />
+            </div>
           )}
 
           <div className="screen-details">

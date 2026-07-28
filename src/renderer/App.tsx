@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { PowerCalculator, type ScreenConfig } from './components/PowerCalculator';
 import { TestPatternViewer, type ScreenHeaderSummary } from './components/TestPatternViewer';
 import { SettingsApp } from './SettingsApp';
+import { ProjectionMaskSection } from './sections/ProjectionMaskSection';
 import type { CabinetPreset, PowerGridConfig, Project, ScreenInstance } from '@shared/types';
 import { mergeUniquePresets } from '@shared/presetValidation';
 import './styles.css';
@@ -32,7 +33,8 @@ function readCustomPresets(): CabinetPreset[] {
 }
 
 export function App(): JSX.Element {
-  const [activeSection, setActiveSection] = useState<'designer' | 'settings'>('designer');
+  const [activeSection, setActiveSection] = useState<'workspace' | 'settings'>('workspace');
+  const [workspaceSection, setWorkspaceSection] = useState<'pixel-mask' | 'wiring' | 'projection-mask' | 'calculator'>('pixel-mask');
   const [screenConfig, setScreenConfig] = useState(DEFAULT_SCREEN_CONFIG);
   const [addScreenSignal, setAddScreenSignal] = useState(0);
   const [clearScreensSignal, setClearScreensSignal] = useState(0);
@@ -147,7 +149,7 @@ export function App(): JSX.Element {
 
   return (
     <>
-    <div className="app-shell" hidden={activeSection !== 'designer'}>
+    <div className="app-shell" hidden={activeSection !== 'workspace'}>
       <header className="app-header">
         <div className="brand">DL_SCREEN MASTER</div>
         <div className="project-toolbar">
@@ -174,44 +176,68 @@ export function App(): JSX.Element {
         </button>
       </header>
 
-      <main className="designer-layout">
-        <aside className="left-panel">
-          <PowerCalculator screenConfig={screenConfig} onScreenConfigChange={setScreenConfig} presets={presets} gridConfig={gridConfig} />
-          <button
-            type="button"
-            className="add-screen-left"
-            disabled={presets.length === 0}
-            onClick={() => setAddScreenSignal((current) => current + 1)}
-          >
-            Добавить экран на холст
-          </button>
-        </aside>
-        {presets.length > 0 ? <TestPatternViewer
-          projectName={projectName}
-          screenConfig={screenConfig}
-          onScreenConfigChange={setScreenConfig}
-          onScreenSummariesChange={setScreenSummaries}
-          addScreenSignal={addScreenSignal}
-          clearScreensSignal={clearScreensSignal}
-          presets={presets}
-          onPresetsImport={importPresets}
-          projectScreens={screensToLoad}
-          projectLoadSignal={projectLoadSignal}
-          onProjectScreensChange={handleProjectScreensChange}
-        /> : (
-          <section className="empty-preset-state">
-            <div>
-              <h1>База кабинетов пуста</h1>
-              <p>Импортируйте RCFG/RCFGX или добавьте кабинет вручную в настройках.</p>
-              <button type="button" onClick={() => setActiveSection('settings')}>Открыть настройки</button>
-            </div>
-          </section>
-        )}
+      <main className="sectioned-layout">
+        <nav className="section-navigation" aria-label="Разделы приложения">
+          <button type="button" className={workspaceSection === 'pixel-mask' ? 'is-active' : ''} onClick={() => setWorkspaceSection('pixel-mask')}><b>▣</b><span>Пиксельная маска</span></button>
+          <button type="button" className={workspaceSection === 'wiring' ? 'is-active' : ''} onClick={() => setWorkspaceSection('wiring')}><b>⌁</b><span>Расключение</span></button>
+          <button type="button" className={workspaceSection === 'projection-mask' ? 'is-active' : ''} onClick={() => setWorkspaceSection('projection-mask')}><b>◫</b><span>Проекционные маски</span></button>
+          <button type="button" className={workspaceSection === 'calculator' ? 'is-active' : ''} onClick={() => setWorkspaceSection('calculator')}><b>Σ</b><span>Калькулятор</span></button>
+          <button type="button" className="nav-settings" onClick={() => setActiveSection('settings')}><b>⚙</b><span>Настройки</span></button>
+        </nav>
+        <div className="section-content">
+          <div className="designer-layout" hidden={workspaceSection !== 'pixel-mask' && workspaceSection !== 'wiring'}>
+            <aside className="left-panel">
+              {workspaceSection === 'pixel-mask' ? (
+                <>
+                  <PowerCalculator screenConfig={screenConfig} onScreenConfigChange={setScreenConfig} presets={presets} gridConfig={gridConfig} />
+                  <button type="button" className="add-screen-left" disabled={presets.length === 0} onClick={() => setAddScreenSignal((current) => current + 1)}>
+                    Добавить экран на холст
+                  </button>
+                </>
+              ) : (
+                <section className="section-intro">
+                  <h2>Расключение</h2>
+                  <p>Выберите экран на холсте и настройте сигнальные порты или силовые цепи в правой панели.</p>
+                  <p>Геометрия экранов общая с разделом «Пиксельная маска».</p>
+                </section>
+              )}
+            </aside>
+            {presets.length > 0 ? <TestPatternViewer
+              projectName={projectName}
+              workspaceMode={workspaceSection === 'wiring' ? 'wiring' : 'pixel-mask'}
+              screenConfig={screenConfig}
+              onScreenConfigChange={setScreenConfig}
+              onScreenSummariesChange={setScreenSummaries}
+              addScreenSignal={addScreenSignal}
+              clearScreensSignal={clearScreensSignal}
+              presets={presets}
+              onPresetsImport={importPresets}
+              projectScreens={screensToLoad}
+              projectLoadSignal={projectLoadSignal}
+              onProjectScreensChange={handleProjectScreensChange}
+            /> : (
+              <section className="empty-preset-state">
+                <div>
+                  <h1>База кабинетов пуста</h1>
+                  <p>Импортируйте RCFG/RCFGX или добавьте кабинет вручную в настройках.</p>
+                  <button type="button" onClick={() => setActiveSection('settings')}>Открыть настройки</button>
+                </div>
+              </section>
+            )}
+          </div>
+          {workspaceSection === 'projection-mask' && <ProjectionMaskSection />}
+          {workspaceSection === 'calculator' && (
+            <section className="calculator-section">
+              <header><h1>Калькулятор</h1><p>Расчёт размеров, разрешения, веса и электропитания экрана.</p></header>
+              <PowerCalculator screenConfig={screenConfig} onScreenConfigChange={setScreenConfig} presets={presets} gridConfig={gridConfig} />
+            </section>
+          )}
+        </div>
       </main>
     </div>
     {activeSection === 'settings' && (
       <SettingsApp
-        onBack={() => setActiveSection('designer')}
+        onBack={() => setActiveSection('workspace')}
         onPresetsChange={setCustomPresets}
         presets={customPresets}
         gridConfig={gridConfig}
