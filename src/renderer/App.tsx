@@ -3,6 +3,7 @@ import { PowerCalculator, type ScreenConfig } from './components/PowerCalculator
 import { TestPatternViewer, type ScreenHeaderSummary } from './components/TestPatternViewer';
 import { SettingsApp } from './SettingsApp';
 import { ProjectionMaskSection } from './sections/ProjectionMaskSection';
+import { BandwidthCalculator } from './components/BandwidthCalculator';
 import type { CabinetPreset, PowerGridConfig, Project, ScreenInstance } from '@shared/types';
 import { mergeUniquePresets } from '@shared/presetValidation';
 import './styles.css';
@@ -229,7 +230,10 @@ export function App(): JSX.Element {
           {workspaceSection === 'calculator' && (
             <section className="calculator-section">
               <header><h1>Калькулятор</h1><p>Расчёт размеров, разрешения, веса и электропитания экрана.</p></header>
-              <PowerCalculator screenConfig={screenConfig} onScreenConfigChange={setScreenConfig} presets={presets} gridConfig={gridConfig} />
+              <div className="calculator-dashboard">
+                <PowerCalculator screenConfig={screenConfig} onScreenConfigChange={setScreenConfig} presets={presets} gridConfig={gridConfig} />
+                <BandwidthCalculator />
+              </div>
             </section>
           )}
         </div>
