@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   calculateVideoBandwidth,
   VIDEO_INTERFACE_MODES,
@@ -16,16 +16,27 @@ const RESOLUTION_PRESETS = [
   ['16K', 15360, 8640]
 ] as const;
 
-export function BandwidthCalculator(): JSX.Element {
+interface BandwidthCalculatorProps {
+  linkedWidth: number;
+  linkedHeight: number;
+  linkedLabel: string;
+}
+
+export function BandwidthCalculator({ linkedWidth, linkedHeight, linkedLabel }: BandwidthCalculatorProps): JSX.Element {
+  const [sourceMode, setSourceMode] = useState<'screen' | 'manual'>('screen');
   const [input, setInput] = useState<VideoBandwidthInput>({
-    width: 3840,
-    height: 2160,
+    width: linkedWidth,
+    height: linkedHeight,
     refreshRate: 60,
     bitsPerComponent: 10,
     chroma: 'rgb-444',
     blankingPercent: 3,
     dscRatio: 1
   });
+  useEffect(() => {
+    if (sourceMode !== 'screen') return;
+    setInput((current) => ({ ...current, width: linkedWidth, height: linkedHeight }));
+  }, [linkedWidth, linkedHeight, sourceMode]);
   const result = useMemo(() => calculateVideoBandwidth(input), [input]);
   const update = <K extends keyof VideoBandwidthInput>(key: K, value: VideoBandwidthInput[K]): void =>
     setInput((current) => ({ ...current, [key]: value }));
@@ -44,8 +55,18 @@ export function BandwidthCalculator(): JSX.Element {
       <div className="bandwidth-inputs">
         <fieldset>
           <legend>Формат сигнала</legend>
+          <div className="bandwidth-source-mode" role="group" aria-label="Источник разрешения">
+            <button type="button" className={sourceMode === 'screen' ? 'is-active' : ''} onClick={() => setSourceMode('screen')}>Из параметров экрана</button>
+            <button type="button" className={sourceMode === 'manual' ? 'is-active' : ''} onClick={() => setSourceMode('manual')}>Ручной ввод</button>
+          </div>
+          {sourceMode === 'screen' && (
+            <p className="bandwidth-linked-screen">
+              <span>{linkedLabel}</span>
+              <strong>{linkedWidth} × {linkedHeight} px</strong>
+            </p>
+          )}
           <label>Готовое разрешение
-            <select value={`${input.width}x${input.height}`} onChange={(event) => {
+            <select disabled={sourceMode === 'screen'} value={`${input.width}x${input.height}`} onChange={(event) => {
               const preset = RESOLUTION_PRESETS.find((item) => `${item[1]}x${item[2]}` === event.target.value);
               if (preset) setInput((current) => ({ ...current, width: preset[1], height: preset[2] }));
             }}>
@@ -54,8 +75,8 @@ export function BandwidthCalculator(): JSX.Element {
             </select>
           </label>
           <div className="bandwidth-grid">
-            <label>Ширина, px<input type="number" min={1} value={input.width} onChange={(event) => update('width', Math.max(1, Number(event.target.value)))} /></label>
-            <label>Высота, px<input type="number" min={1} value={input.height} onChange={(event) => update('height', Math.max(1, Number(event.target.value)))} /></label>
+            <label>Ширина, px<input disabled={sourceMode === 'screen'} type="number" min={1} value={input.width} onChange={(event) => update('width', Math.max(1, Number(event.target.value)))} /></label>
+            <label>Высота, px<input disabled={sourceMode === 'screen'} type="number" min={1} value={input.height} onChange={(event) => update('height', Math.max(1, Number(event.target.value)))} /></label>
             <label>Частота, Гц<input type="number" min={1} step={1} value={input.refreshRate} onChange={(event) => update('refreshRate', Math.max(1, Number(event.target.value)))} /></label>
             <label>Глубина цвета
               <select value={input.bitsPerComponent} onChange={(event) => update('bitsPerComponent', Number(event.target.value) as 8 | 10 | 12)}>

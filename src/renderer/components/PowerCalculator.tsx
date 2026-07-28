@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { calculateScreenPower } from '@shared/calculations';
-import type { CabinetPreset, Screen, PowerGridConfig } from '@shared/types';
+import type { CabinetInstance, CabinetPreset, Screen, PowerGridConfig } from '@shared/types';
 
 export interface ScreenConfig {
   presetId: string;
@@ -33,7 +33,7 @@ export function PowerCalculator({
   const preset = presets.find((item) => item.id === presetId) ?? presets[0];
 
   const screen: Screen = useMemo(() => {
-    const cabinets = [];
+    const cabinets: CabinetInstance[] = [];
     if (!preset) return { id: 'screen-1', name: 'Тестовый экран', cabinets, cols, rows };
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -119,6 +119,7 @@ export function PowerCalculator({
       <table className="result-table">
         <tbody>
           <Row label="Всего кабинетов" value={result.totalCabinets} />
+          <Row label="Разрешение (px)" value={`${cols * preset.resolutionX} × ${rows * preset.resolutionY}`} />
           <Row label="Габариты (мм)" value={`${result.totalWidthMm} × ${result.totalHeightMm}`} />
           <Row label="Общий вес (кг)" value={result.totalWeightKg.toFixed(1)} />
           <Row label="Пиковое потребление (Вт)" value={result.totalMaxPowerW} />

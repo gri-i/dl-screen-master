@@ -18,6 +18,13 @@ import { importNovaStarSrcx } from '../novastarImport';
 import { PowerPathPlanner } from './PowerPathPlanner';
 import { strToU8, zipSync } from 'fflate';
 import { buildCsvFiles, buildReportHtml, buildScreenSvg, type ExportScreen } from '../projectExport';
+import {
+  generateCabinetOrder,
+  generatePowerPlan,
+  routeProcessor,
+  type RoutingPattern,
+  type StartCorner
+} from '@shared/autoRouting';
 
 const OVERLAY_POSITION_LABELS: Record<OverlayPosition, string> = {
   'top-left': 'Сверху слева',
@@ -297,6 +304,10 @@ export function TestPatternViewer({
   const [isEditingPowerPath, setIsEditingPowerPath] = useState(false);
   const [newControllerModel, setNewControllerModel] = useState<string>(NOVASTAR_CONTROLLERS[0].model);
   const [pathPanelMode, setPathPanelMode] = useState<'data' | 'power'>('data');
+  const [autoRoutingPattern, setAutoRoutingPattern] = useState<RoutingPattern>('snake-rows');
+  const [autoRoutingCorner, setAutoRoutingCorner] = useState<StartCorner>('top-left');
+  const [autoRoutingReverse, setAutoRoutingReverse] = useState(false);
+  const [showAutoRoutingPreview, setShowAutoRoutingPreview] = useState(false);
   const [snapGuides, setSnapGuides] = useState<{ x?: number; y?: number }>({});
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const selectionStartRef = useRef<{ x: number; y: number; additive: boolean } | null>(null);
@@ -874,10 +885,20 @@ export function TestPatternViewer({
 
   function addNovaStarController(): void {
     if (!selectedPlacedScreenId) return;
-    const template = NOVASTAR_CONTROLLERS.find((controller) => controller.model === newControllerModel);
-    if (!template) return;
+    const processor = createNovaStarProcessor();
+    if (!processor) return;
     rememberState();
-    const processor: Processor = {
+    setPlacedScreens((current) => current.map((screen) => screen.id === selectedPlacedScreenId
+      ? { ...screen, processor }
+      : screen));
+    setActiveDataPortId(processor.ports[0]?.portId ?? null);
+    setIsEditingDataPath(true);
+  }
+
+  function createNovaStarProcessor(): Processor | null {
+    const template = NOVASTAR_CONTROLLERS.find((controller) => controller.model === newControllerModel);
+    if (!template) return null;
+    return {
       id: crypto.randomUUID(),
       brand: 'NovaStar',
       model: template.model,
@@ -890,11 +911,6 @@ export function TestPatternViewer({
         assignedCabinets: []
       }))
     };
-    setPlacedScreens((current) => current.map((screen) => screen.id === selectedPlacedScreenId
-      ? { ...screen, processor }
-      : screen));
-    setActiveDataPortId(processor.ports[0]?.portId ?? null);
-    setIsEditingDataPath(true);
   }
 
   function editDataPathCabinet(screenId: string, cabinetKey: string): void {
@@ -1686,6 +1702,73 @@ export function TestPatternViewer({
   const selectedDataPreset = selectedDataScreen
     ? presets.find((item) => item.id === selectedDataScreen.screenConfig.presetId) ?? presets[0]
     : null;
+  const autoRoutingOrder = useMemo(() => selectedDataScreen
+    ? generateCabinetOrder(
+        selectedDataScreen.screenConfig,
+        autoRoutingPattern,
+        autoRoutingCorner,
+        autoRoutingReverse
+      )
+    : [], [
+      selectedDataScreen?.screenConfig.cols,
+      selectedDataScreen?.screenConfig.rows,
+      selectedDataScreen?.screenConfig.emptyCabinetKeys,
+      autoRoutingPattern,
+      autoRoutingCorner,
+      autoRoutingReverse
+    ]);
+  const autoPreviewProcessor = useMemo(() => {
+    if (!selectedDataScreen || !selectedDataPreset) return null;
+    const source = selectedDataScreen.processor ?? createNovaStarProcessor();
+    return source ? routeProcessor(
+      source,
+      autoRoutingOrder,
+      selectedDataPreset.resolutionX * selectedDataPreset.resolutionY
+    ) : null;
+  }, [selectedDataScreen?.processor, selectedDataPreset, autoRoutingOrder, newControllerModel]);
+  const autoPowerSource = selectedDataScreen?.powerPlan ?? {
+    voltage: 230,
+    circuitBreakerAmps: 16,
+    safetyMarginPercent: 20,
+    powerFactor: .95,
+    phases: 3 as const,
+    circuits: []
+  };
+  const autoPreviewPowerPlan = useMemo(() => selectedDataPreset
+    ? generatePowerPlan({
+        voltage: autoPowerSource.voltage,
+        circuitBreakerAmps: autoPowerSource.circuitBreakerAmps,
+        safetyMarginPercent: autoPowerSource.safetyMarginPercent,
+        powerFactor: autoPowerSource.powerFactor,
+        phases: autoPowerSource.phases
+      }, autoRoutingOrder, selectedDataPreset.maxPowerW)
+    : null, [
+      selectedDataPreset,
+      autoRoutingOrder,
+      autoPowerSource.voltage,
+      autoPowerSource.circuitBreakerAmps,
+      autoPowerSource.safetyMarginPercent,
+      autoPowerSource.powerFactor,
+      autoPowerSource.phases
+    ]);
+
+  function applyAutoRouting(scope: 'data' | 'power' | 'all'): void {
+    if (!selectedDataScreen || !selectedDataPreset) return;
+    const routedProcessor = autoPreviewProcessor;
+    const routedPowerPlan = autoPreviewPowerPlan;
+    rememberState();
+    setPlacedScreens((current) => current.map((screen) => screen.id === selectedDataScreen.id
+      ? {
+          ...screen,
+          processor: scope !== 'power' && routedProcessor ? cloneProcessor(routedProcessor) : screen.processor,
+          powerPlan: scope !== 'data' && routedPowerPlan ? clonePowerPlan(routedPowerPlan) : screen.powerPlan
+        }
+      : screen));
+    if (scope !== 'power') setActiveDataPortId(routedProcessor?.ports[0]?.portId ?? null);
+    if (scope !== 'data') setActivePowerCircuitId(routedPowerPlan?.circuits[0]?.id ?? null);
+    setShowAutoRoutingPreview(false);
+    setImportStatus(`Автосхема применена: ${autoRoutingOrder.length} кабинетов`);
+  }
 
   return (
     <section className={`pattern-workspace is-${workspaceMode}${importStatus ? ' has-import-status' : ''}`}>
@@ -1961,6 +2044,74 @@ export function TestPatternViewer({
               />{' '}
               Тестовая сетка
             </label>
+          </fieldset>
+
+          <fieldset className="auto-routing-panel wiring-control">
+            <legend>Автоматическая схема</legend>
+            {!selectedDataScreen ? (
+              <p className="field-hint">Выберите экран для построения схемы.</p>
+            ) : (
+              <>
+                <div className="auto-routing-settings">
+                  <label>Схема
+                    <select value={autoRoutingPattern} onChange={(event) => setAutoRoutingPattern(event.target.value as RoutingPattern)}>
+                      <option value="snake-rows">Змейка по строкам</option>
+                      <option value="snake-columns">Змейка по колонкам</option>
+                      <option value="rows">По строкам</option>
+                      <option value="columns">По колонкам</option>
+                      <option value="center">От центра</option>
+                    </select>
+                  </label>
+                  <label>Начальная точка
+                    <select value={autoRoutingCorner} onChange={(event) => setAutoRoutingCorner(event.target.value as StartCorner)}>
+                      <option value="top-left">Сверху слева</option>
+                      <option value="top-right">Сверху справа</option>
+                      <option value="bottom-left">Снизу слева</option>
+                      <option value="bottom-right">Снизу справа</option>
+                    </select>
+                  </label>
+                </div>
+                <label><input type="checkbox" checked={autoRoutingReverse} onChange={(event) => setAutoRoutingReverse(event.target.checked)} /> Обратное направление</label>
+                {!selectedDataScreen.processor && (
+                  <label>Контроллер
+                    <select value={newControllerModel} onChange={(event) => setNewControllerModel(event.target.value)}>
+                      {NOVASTAR_CONTROLLERS.map((controller) => <option key={controller.model} value={controller.model}>{controller.model}</option>)}
+                    </select>
+                  </label>
+                )}
+                <div className="auto-routing-summary">
+                  <span>Кабинетов: <b>{autoRoutingOrder.length}</b></span>
+                  <span>Data-портов: <b>{autoPreviewProcessor?.ports.filter((port) => port.assignedCabinets.length > 0).length ?? 0}</b></span>
+                  <span>Силовых цепей: <b>{autoPreviewPowerPlan?.circuits.length ?? 0}</b></span>
+                </div>
+                <button type="button" onClick={() => setShowAutoRoutingPreview((current) => !current)}>
+                  {showAutoRoutingPreview ? 'Скрыть предпросмотр' : 'Предварительный просмотр'}
+                </button>
+                {showAutoRoutingPreview && (
+                  <div className="auto-routing-preview">
+                    <div className="auto-routing-grid" style={{ gridTemplateColumns: `repeat(${selectedDataScreen.screenConfig.cols}, 1fr)` }}>
+                      {Array.from({ length: selectedDataScreen.screenConfig.rows }, (_, row) =>
+                        Array.from({ length: selectedDataScreen.screenConfig.cols }, (_, col) => {
+                          const key = `${col}-${row}`;
+                          if (selectedDataScreen.screenConfig.emptyCabinetKeys.includes(key)) return <span key={key} className="is-empty" />;
+                          const orderIndex = autoRoutingOrder.indexOf(key);
+                          const portIndex = autoPreviewProcessor?.ports.findIndex((port) => port.assignedCabinets.includes(key)) ?? -1;
+                          return <span key={key} style={portIndex >= 0 ? { background: `hsl(${portIndex * 83} 62% 38%)` } : undefined}>{orderIndex + 1}</span>;
+                        })
+                      )}
+                    </div>
+                    {(autoPreviewProcessor?.ports.reduce((sum, port) => sum + port.assignedCabinets.length, 0) ?? 0) < autoRoutingOrder.length && (
+                      <p className="data-path-summary is-warning">Портов контроллера недостаточно: часть кабинетов не будет назначена.</p>
+                    )}
+                    <div className="auto-routing-actions">
+                      <button type="button" onClick={() => applyAutoRouting('data')}>Применить Data</button>
+                      <button type="button" onClick={() => applyAutoRouting('power')}>Применить Power</button>
+                      <button type="button" onClick={() => applyAutoRouting('all')}>Применить всё</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </fieldset>
 
           <div className="path-planning-tabs wiring-control" role="tablist" aria-label="Тип инженерной схемы">

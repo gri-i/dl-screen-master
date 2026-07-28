@@ -57,6 +57,7 @@ export function App(): JSX.Element {
     }
   });
   const presets = useMemo(() => customPresets, [customPresets]);
+  const calculatorPreset = presets.find((preset) => preset.id === screenConfig.presetId) ?? presets[0];
   const handleProjectScreensChange = useCallback((screens: ScreenInstance[]) => {
     setProjectScreens(screens);
   }, []);
@@ -232,7 +233,11 @@ export function App(): JSX.Element {
               <header><h1>Калькулятор</h1><p>Расчёт размеров, разрешения, веса и электропитания экрана.</p></header>
               <div className="calculator-dashboard">
                 <PowerCalculator screenConfig={screenConfig} onScreenConfigChange={setScreenConfig} presets={presets} gridConfig={gridConfig} />
-                <BandwidthCalculator />
+                <BandwidthCalculator
+                  linkedWidth={(calculatorPreset?.resolutionX ?? 1) * screenConfig.cols}
+                  linkedHeight={(calculatorPreset?.resolutionY ?? 1) * screenConfig.rows}
+                  linkedLabel={calculatorPreset ? `${calculatorPreset.brand} ${calculatorPreset.model} · ${screenConfig.cols} × ${screenConfig.rows} кабинетов` : 'Экран без пресета'}
+                />
               </div>
             </section>
           )}
