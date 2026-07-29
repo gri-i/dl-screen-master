@@ -390,6 +390,12 @@ export function TestPatternViewer({
   }, [placedScreens, selectedPlacedScreenId]);
 
   useEffect(() => {
+    if (workspaceMode !== 'pixel-mask') return;
+    setIsEditingDataPath(false);
+    setIsEditingPowerPath(false);
+  }, [workspaceMode]);
+
+  useEffect(() => {
     onScreenSummariesChange(placedScreens.map((screen) => {
       const screenPreset = presets.find((item) => item.id === screen.screenConfig.presetId) ?? presets[0];
       const screenWidthMm = screenPreset.widthMm * screen.screenConfig.cols;
@@ -2298,7 +2304,7 @@ export function TestPatternViewer({
                       ...(workspaceZoom < 0.12 ? { filter: `blur(${0.45 / workspaceZoom}px)` } : {})
                     }}
                   />
-                  {pathPanelMode === 'data' && screen.processor && selectedPlacedScreenId === screen.id && (() => {
+                  {workspaceMode === 'wiring' && pathPanelMode === 'data' && screen.processor && selectedPlacedScreenId === screen.id && (() => {
                     const cols = screen.screenConfig.cols;
                     const rows = screen.screenConfig.rows;
                     const overlayWidth = screen.rotation === 90 || screen.rotation === 270 ? screen.height : screen.width;
@@ -2361,7 +2367,7 @@ export function TestPatternViewer({
                       </svg>
                     );
                   })()}
-                  {pathPanelMode === 'power' && screen.powerPlan && selectedPlacedScreenId === screen.id && (() => {
+                  {workspaceMode === 'wiring' && pathPanelMode === 'power' && screen.powerPlan && selectedPlacedScreenId === screen.id && (() => {
                     const cols = screen.screenConfig.cols;
                     const rows = screen.screenConfig.rows;
                     const overlayWidth = screen.rotation === 90 || screen.rotation === 270 ? screen.height : screen.width;

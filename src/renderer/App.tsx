@@ -41,6 +41,7 @@ export function App(): JSX.Element {
   const [clearScreensSignal, setClearScreensSignal] = useState(0);
   const [, setScreenSummaries] = useState<ScreenHeaderSummary[]>([]);
   const [customPresets, setCustomPresets] = useState<CabinetPreset[]>([]);
+  const [sessionPresets, setSessionPresets] = useState<CabinetPreset[]>([]);
   const [projectScreens, setProjectScreens] = useState<ScreenInstance[]>([]);
   const [screensToLoad, setScreensToLoad] = useState<ScreenInstance[] | null>(null);
   const [projectLoadSignal, setProjectLoadSignal] = useState(0);
@@ -56,7 +57,7 @@ export function App(): JSX.Element {
       return DEFAULT_GRID_CONFIG;
     }
   });
-  const presets = useMemo(() => customPresets, [customPresets]);
+  const presets = useMemo(() => mergeUniquePresets(customPresets, sessionPresets, { skipDuplicates: true }), [customPresets, sessionPresets]);
   const calculatorPreset = presets.find((preset) => preset.id === screenConfig.presetId) ?? presets[0];
   const handleProjectScreensChange = useCallback((screens: ScreenInstance[]) => {
     setProjectScreens(screens);
@@ -69,6 +70,7 @@ export function App(): JSX.Element {
     setScreensToLoad([]);
     setProjectLoadSignal((value) => value + 1);
     setProjectStatus('Создан новый проект');
+    setSessionPresets([]);
   }
 
   async function openProject(): Promise<void> {
@@ -81,6 +83,7 @@ export function App(): JSX.Element {
       }
       const nextPresets = Array.isArray(project.customPresets) ? project.customPresets : [];
       setCustomPresets(nextPresets);
+      setSessionPresets([]);
       await window.presetFiles.save(nextPresets);
       setProjectName(project.name || 'Без названия');
       setProjectPath(result.filePath);
@@ -114,14 +117,8 @@ export function App(): JSX.Element {
     }
   }
 
-  function importPresets(imported: CabinetPreset[]): void {
-    try {
-      const next = mergeUniquePresets(customPresets, imported, { skipDuplicates: true });
-      void window.presetFiles.save(next);
-      setCustomPresets(next);
-    } catch (error) {
-      setProjectStatus(error instanceof Error ? error.message : 'Не удалось импортировать пресеты');
-    }
+  function importSessionPresets(imported: CabinetPreset[]): void {
+    setSessionPresets((current) => mergeUniquePresets(current, imported, { skipDuplicates: true }));
   }
 
   useEffect(() => {
@@ -213,7 +210,7 @@ export function App(): JSX.Element {
               addScreenSignal={addScreenSignal}
               clearScreensSignal={clearScreensSignal}
               presets={presets}
-              onPresetsImport={importPresets}
+              onPresetsImport={importSessionPresets}
               projectScreens={screensToLoad}
               projectLoadSignal={projectLoadSignal}
               onProjectScreensChange={handleProjectScreensChange}
