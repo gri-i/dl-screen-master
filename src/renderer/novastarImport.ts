@@ -27,23 +27,168 @@ function directText(element: Element, tag: string): string {
   return Array.from(element.children).find((child) => child.tagName === tag)?.textContent?.trim() ?? '';
 }
 
-export async function importNovaStarSrcx(file: File): Promise<{
+interface NovaStarSceneSource {
+  name: string;
+  xml: string;
+}
+
+function fileBaseName(fileName: string): string {
+  return fileName.replace(/\.[^.]+$/, '') || fileName;
+}
+
+function decodeText(bytes: Uint8Array): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes);
+  const zeroEven = bytes.slice(0, Math.min(bytes.length, 80)).filter((_, index) => index % 2 === 0 && bytes[index] === 0).length;
+  const zeroOdd = bytes.slice(0, Math.min(bytes.length, 80)).filter((_, index) => index % 2 === 1 && bytes[index] === 0).length;
+  if (zeroOdd > zeroEven * 2) return new TextDecoder('utf-16le').decode(bytes);
+  if (zeroEven > zeroOdd * 2) return new TextDecoder('utf-16be').decode(bytes);
+  return strFromU8(bytes);
+}
+
+function matches(bytes: Uint8Array, offset: number, pattern: readonly number[]): boolean {
+  if (offset < 0 || offset + pattern.length > bytes.length) return false;
+  return pattern.every((value, index) => bytes[offset + index] === value);
+}
+
+function uint16be(bytes: Uint8Array, offset: number): number {
+  return (bytes[offset] << 8) | bytes[offset + 1];
+}
+
+function uint16le(bytes: Uint8Array, offset: number): number {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function importNovaStarDsc(fileName: string, bytes: Uint8Array): {
+  screens: ImportedNovaStarScreen[];
+  presets: CabinetPreset[];
+} | null {
+  if (!matches(bytes, 0, [0x44, 0x53, 0x43, 0x49])) return null;
+
+  const marker = [0x00, 0x00, 0x01, 0x40, 0x00, 0x01, 0x00, 0x00] as const;
+  let bestMarkerOffset = -1;
+  let bestCount = 0;
+
+  for (let offset = 4; offset < bytes.length - marker.length; offset += 1) {
+    if (!matches(bytes, offset, marker)) continue;
+    let count = 0;
+    while (matches(bytes, offset + count * 17, marker)) count += 1;
+    if (count > bestCount) {
+      bestCount = count;
+      bestMarkerOffset = offset;
+    }
+  }
+
+  const recordStart = bestMarkerOffset - 4;
+  if (bestCount < 2 || recordStart < 0) {
+    throw new Error('Файл SCR распознан как NovaLCT DSCI, но таблица кабинетов не найдена');
+  }
+
+  const headerCount = bytes[recordStart - 9] ?? 0;
+  if (headerCount >= bestCount && headerCount <= 4096 && recordStart + headerCount * 17 <= bytes.length) {
+    bestCount = headerCount;
+  }
+
+  const widthFromMarker = uint16be(bytes, bestMarkerOffset + 2);
+  const heightFromMarker = uint16le(bytes, bestMarkerOffset + 4);
+  const resolutionX = widthFromMarker > 0 ? widthFromMarker : 320;
+  const resolutionY = heightFromMarker > 0 ? heightFromMarker : 256;
+
+  const columns = new Map<number, number[]>();
+  for (let index = 0; index < bestCount; index += 1) {
+    const offset = recordStart + index * 17;
+    const col = bytes[offset];
+    const order = bytes[offset + 3];
+    const column = columns.get(col) ?? [];
+    column.push(order);
+    columns.set(col, column);
+  }
+
+  const sortedColumns = Array.from(columns.keys()).sort((a, b) => a - b);
+  const cols = Math.max(1, sortedColumns.length);
+  const rows = Math.max(1, ...Array.from(columns.values(), (items) => items.length));
+  const occupied = new Set<string>();
+  sortedColumns.forEach((sourceCol, col) => {
+    const rowCount = columns.get(sourceCol)?.length ?? 0;
+    for (let row = 0; row < rowCount; row += 1) occupied.add(`${col}-${row}`);
+  });
+
+  const emptyCabinetKeys: string[] = [];
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const key = `${col}-${row}`;
+      if (!occupied.has(key)) emptyCabinetKeys.push(key);
+    }
+  }
+
+  const model = `SCR ${resolutionX}x${resolutionY}`;
+  const presetId = `novalct-${slug(`${fileBaseName(fileName)}-${model}`)}`;
+  const preset: CabinetPreset = {
+    id: presetId,
+    brand: 'NovaLCT',
+    model,
+    widthMm: resolutionX,
+    heightMm: resolutionY,
+    pixelPitchMm: 1,
+    resolutionX,
+    resolutionY,
+    weightKg: 0,
+    maxPowerW: 0,
+    avgPowerW: 0
+  };
+
+  return {
+    screens: [{
+      name: fileBaseName(fileName),
+      config: { presetId, cols, rows, emptyCabinetKeys },
+      preset,
+      sourceCabinetCount: occupied.size
+    }],
+    presets: [preset]
+  };
+}
+
+function readNovaStarScenes(bytes: Uint8Array, fileName: string): NovaStarSceneSource[] {
+  try {
+    const archive = unzipSync(bytes);
+    let sceneNames = Object.keys(archive)
+      .filter((name) => /^SceneInfo_.*\.xml$/i.test(name))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (sceneNames.length === 0) {
+      sceneNames = Object.keys(archive)
+        .filter((name) => /\.xml$/i.test(name))
+        .filter((name) => /<CabinetInfo[\s>]/i.test(decodeText(archive[name])))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+    if (sceneNames.length === 0) throw new Error('В файле не найдены XML-сцены NovaStar с CabinetInfo');
+    return sceneNames.map((name) => ({ name, xml: decodeText(archive[name]) }));
+  } catch (error) {
+    const rawText = decodeText(bytes);
+    if (/^\s*</.test(rawText) && /<CabinetInfo[\s>]/i.test(rawText)) {
+      return [{ name: fileBaseName(fileName), xml: rawText }];
+    }
+    throw error instanceof Error && error.message === 'В файле не найдены XML-сцены NovaStar с CabinetInfo'
+      ? error
+      : new Error('Формат NovaStar не поддержан: нужен .srcx/.scr архив со сценами или XML-файл с CabinetInfo');
+  }
+}
+
+export async function importNovaStarProject(file: File): Promise<{
   screens: ImportedNovaStarScreen[];
   presets: CabinetPreset[];
 }> {
-  const archive = unzipSync(new Uint8Array(await file.arrayBuffer()));
-  const sceneNames = Object.keys(archive)
-    .filter((name) => /^SceneInfo_.*\.xml$/i.test(name))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  if (sceneNames.length === 0) throw new Error('В файле не найдены сцены NovaStar');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const binaryImport = importNovaStarDsc(file.name, bytes);
+  if (binaryImport) return binaryImport;
 
+  const sceneSources = readNovaStarScenes(bytes, file.name);
   const parser = new DOMParser();
   const presetsById = new Map<string, CabinetPreset>();
   const screens: ImportedNovaStarScreen[] = [];
 
-  for (const sceneFileName of sceneNames) {
-    const document = parser.parseFromString(strFromU8(archive[sceneFileName]), 'application/xml');
-    if (document.querySelector('parsererror')) throw new Error(`Не удалось прочитать ${sceneFileName}`);
+  for (const scene of sceneSources) {
+    const document = parser.parseFromString(scene.xml, 'application/xml');
+    if (document.querySelector('parsererror')) throw new Error(`Не удалось прочитать ${scene.name}`);
     const cabinets = Array.from(document.getElementsByTagName('CabinetInfo'));
     if (cabinets.length === 0) continue;
 
@@ -141,7 +286,7 @@ export async function importNovaStarSrcx(file: File): Promise<{
     } : undefined;
 
     screens.push({
-      name: text(document.documentElement, 'ScreenName') || sceneFileName.replace(/^SceneInfo_|\.xml$/gi, ''),
+      name: text(document.documentElement, 'ScreenName') || scene.name.replace(/^SceneInfo_|\.xml$/gi, ''),
       config: { presetId, cols, rows, emptyCabinetKeys },
       preset,
       processor,
@@ -152,3 +297,5 @@ export async function importNovaStarSrcx(file: File): Promise<{
   if (screens.length === 0) throw new Error('В файле NovaStar нет кабинетов для импорта');
   return { screens, presets: Array.from(presetsById.values()) };
 }
+
+export const importNovaStarSrcx = importNovaStarProject;

@@ -14,7 +14,7 @@ import {
   type PatternConfig
 } from '@shared/patterns';
 import type { ScreenConfig } from './PowerCalculator';
-import { importNovaStarSrcx } from '../novastarImport';
+import { importNovaStarProject } from '../novastarImport';
 import { PowerPathPlanner } from './PowerPathPlanner';
 import { strToU8, zipSync } from 'fflate';
 import { buildCsvFiles, buildReportHtml, buildScreenSvg, type ExportScreen } from '../projectExport';
@@ -58,6 +58,31 @@ function fullBrightnessColor(color: string): string {
   const peak = Math.max(...channels);
   if (peak === 0 || peak === 255) return color;
   return `#${channels.map((channel) => Math.round(channel * 255 / peak).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function colorBrightness(color: string): number {
+  const match = color.match(/^#([0-9a-f]{6})$/i);
+  if (!match) return 255;
+  const red = Number.parseInt(match[1].slice(0, 2), 16);
+  const green = Number.parseInt(match[1].slice(2, 4), 16);
+  const blue = Number.parseInt(match[1].slice(4, 6), 16);
+  return (red * 299 + green * 587 + blue * 114) / 1000;
+}
+
+function visiblePatternConfig(source: PatternConfig): PatternConfig {
+  const colors = source.palette && source.palette.length > 1 ? source.palette : [source.colorA, source.colorB];
+  const brightest = Math.max(...colors.map(colorBrightness));
+  const darkest = Math.min(...colors.map(colorBrightness));
+  if (brightest < 55 || brightest - darkest < 28) return clonePatternConfig(DEFAULT_PATTERN_CONFIG);
+  return clonePatternConfig(source);
+}
+
+function escapeSvgText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 const TEXT_COLOR_PALETTE = [
@@ -1344,6 +1369,10 @@ export function TestPatternViewer({
     importedPreset: CabinetPreset,
     name: string
   ): string {
+    if (importedPreset.brand === 'NovaLCT') {
+      return renderImportedSvgPreview(importedConfig, importedPreset, name);
+    }
+
     const nativeWidth = importedPreset.resolutionX * importedConfig.cols;
     const nativeHeight = importedPreset.resolutionY * importedConfig.rows;
     const scale = Math.min(1, 2048 / nativeWidth, 2048 / nativeHeight);
@@ -1353,7 +1382,8 @@ export function TestPatternViewer({
     const context = preview.getContext('2d');
     if (!context) return '';
 
-    drawPattern(context, preview.width, preview.height, config, {
+    const previewConfig = visiblePatternConfig(config);
+    drawPattern(context, preview.width, preview.height, previewConfig, {
       checkerCellWidthPx: importedPreset.resolutionX * scale,
       checkerCellHeightPx: importedPreset.resolutionY * scale
     });
@@ -1393,6 +1423,35 @@ export function TestPatternViewer({
     return preview.toDataURL('image/png');
   }
 
+  function renderImportedSvgPreview(
+    importedConfig: ScreenConfig,
+    importedPreset: CabinetPreset,
+    name: string
+  ): string {
+    const nativeWidth = importedPreset.resolutionX * importedConfig.cols;
+    const nativeHeight = importedPreset.resolutionY * importedConfig.rows;
+    const empty = new Set(importedConfig.emptyCabinetKeys);
+    const pattern = visiblePatternConfig(config);
+    const palette = pattern.palette && pattern.palette.length > 1 ? pattern.palette : [pattern.colorA, pattern.colorB];
+    const cells: string[] = [];
+
+    for (let row = 0; row < importedConfig.rows; row += 1) {
+      for (let col = 0; col < importedConfig.cols; col += 1) {
+        if (empty.has(`${col}-${row}`)) continue;
+        const color = palette[(row + col) % palette.length] ?? DEFAULT_PATTERN_CONFIG.colorA;
+        cells.push(`<rect x="${col * importedPreset.resolutionX}" y="${row * importedPreset.resolutionY}" width="${importedPreset.resolutionX}" height="${importedPreset.resolutionY}" fill="${color}"/>`);
+      }
+    }
+
+    const grid = showCabinetGrid
+      ? `<g fill="none" stroke="#ffffff" stroke-width="${Math.max(2, Math.round(Math.min(importedPreset.resolutionX, importedPreset.resolutionY) * 0.008))}" opacity=".85">${Array.from({ length: importedConfig.cols + 1 }, (_, col) => `<path d="M${col * importedPreset.resolutionX} 0V${nativeHeight}"/>`).join('')}${Array.from({ length: importedConfig.rows + 1 }, (_, row) => `<path d="M0 ${row * importedPreset.resolutionY}H${nativeWidth}"/>`).join('')}</g>`
+      : '';
+    const labelSize = Math.max(34, Math.min(nativeWidth, nativeHeight) * 0.08);
+    const label = `<text x="${nativeWidth / 2}" y="${nativeHeight / 2}" fill="${fullBrightnessColor(textColor)}" stroke="rgba(0,0,0,.85)" stroke-width="${Math.max(3, labelSize * 0.08)}" paint-order="stroke" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="${labelSize}" font-weight="700">${escapeSvgText(name)}</text>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${nativeWidth}" height="${nativeHeight}" viewBox="0 0 ${nativeWidth} ${nativeHeight}"><rect width="100%" height="100%" fill="#111827"/>${cells.join('')}${grid}${label}</svg>`;
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }
+
   async function handleNovaStarImport(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -1400,19 +1459,24 @@ export function TestPatternViewer({
 
     setImportStatus('Чтение NovaStar…');
     try {
-      const imported = await importNovaStarSrcx(file);
+      const imported = await importNovaStarProject(file);
       onPresetsImport(imported.presets);
       const baseY = placedScreens.reduce((bottom, screen) => Math.max(bottom, screen.y + screen.height), 0) + 80;
       let nextY = baseY;
       const screens = imported.screens.map((screen) => {
         const width = screen.config.cols * screen.preset.widthMm * WORKSPACE_PX_PER_MM;
         const height = screen.config.rows * screen.preset.heightMm * WORKSPACE_PX_PER_MM;
+        const visualSettings = {
+          ...currentVisualSettings(),
+          config: visiblePatternConfig(config),
+          screenLabel: screen.name
+        };
         const placed: PlacedScreen = {
           id: crypto.randomUUID(),
           name: screen.name,
           imageSource: renderImportedPreview(screen.config, screen.preset, screen.name),
           screenConfig: screen.config,
-          visualSettings: { ...currentVisualSettings(), screenLabel: screen.name },
+          visualSettings,
           width,
           height,
           x: 32,
@@ -1785,8 +1849,8 @@ export function TestPatternViewer({
         </div>
         <div className="zoom-controls" aria-label="Масштаб холста" data-history-revision={historyRevision}>
           <label className="import-srcx-button">
-            Импорт .srcx
-            <input type="file" accept=".srcx" onChange={handleNovaStarImport} />
+            Импорт .srcx/.scr
+            <input type="file" accept=".srcx,.scr" onChange={handleNovaStarImport} />
           </label>
           <button
             type="button"

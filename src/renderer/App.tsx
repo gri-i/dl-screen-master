@@ -162,6 +162,44 @@ export function App(): JSX.Element {
           />
           {projectStatus && <span title={projectStatus}>{projectStatus}</span>}
         </div>
+        <nav className="section-navigation" aria-label="Разделы приложения">
+          <button
+            type="button"
+            className={workspaceSection === 'pixel-mask' ? 'is-active' : ''}
+            aria-label="Пиксельная маска"
+            title="Пиксельная маска"
+            onClick={() => setWorkspaceSection('pixel-mask')}
+          >
+            <b aria-hidden="true">▣</b>
+          </button>
+          <button
+            type="button"
+            className={workspaceSection === 'wiring' ? 'is-active' : ''}
+            aria-label="Расключение"
+            title="Расключение"
+            onClick={() => setWorkspaceSection('wiring')}
+          >
+            <b aria-hidden="true">⌁</b>
+          </button>
+          <button
+            type="button"
+            className={workspaceSection === 'projection-mask' ? 'is-active' : ''}
+            aria-label="Проекционные маски"
+            title="Проекционные маски"
+            onClick={() => setWorkspaceSection('projection-mask')}
+          >
+            <b aria-hidden="true">◫</b>
+          </button>
+          <button
+            type="button"
+            className={workspaceSection === 'calculator' ? 'is-active' : ''}
+            aria-label="Калькулятор"
+            title="Калькулятор"
+            onClick={() => setWorkspaceSection('calculator')}
+          >
+            <b aria-hidden="true">Σ</b>
+          </button>
+        </nav>
         <div className="header-spacer" />
         <button
           className="clear-screens-button"
@@ -176,13 +214,6 @@ export function App(): JSX.Element {
       </header>
 
       <main className="sectioned-layout">
-        <nav className="section-navigation" aria-label="Разделы приложения">
-          <button type="button" className={workspaceSection === 'pixel-mask' ? 'is-active' : ''} onClick={() => setWorkspaceSection('pixel-mask')}><b>▣</b><span>Пиксельная маска</span></button>
-          <button type="button" className={workspaceSection === 'wiring' ? 'is-active' : ''} onClick={() => setWorkspaceSection('wiring')}><b>⌁</b><span>Расключение</span></button>
-          <button type="button" className={workspaceSection === 'projection-mask' ? 'is-active' : ''} onClick={() => setWorkspaceSection('projection-mask')}><b>◫</b><span>Проекционные маски</span></button>
-          <button type="button" className={workspaceSection === 'calculator' ? 'is-active' : ''} onClick={() => setWorkspaceSection('calculator')}><b>Σ</b><span>Калькулятор</span></button>
-          <button type="button" className="nav-settings" onClick={() => setActiveSection('settings')}><b>⚙</b><span>Настройки</span></button>
-        </nav>
         <div className="section-content">
           <div className="designer-layout" hidden={workspaceSection !== 'pixel-mask' && workspaceSection !== 'wiring'}>
             <aside className="left-panel">
