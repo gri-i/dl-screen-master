@@ -1,11 +1,14 @@
 import React, { useMemo } from 'react';
 import type { CabinetPreset, PowerCircuit, PowerPhase, PowerPlan } from '@shared/types';
 import type { ScreenConfig } from './PowerCalculator';
+import { POWER_PORT_MAX_W, usablePowerPerPortW } from '@shared/powerLimits';
 
 interface PowerPathPlannerProps {
   plan?: PowerPlan;
   screenConfig: ScreenConfig;
   preset: CabinetPreset;
+  presets: CabinetPreset[];
+  onPresetChange: (presetId: string) => void;
   onChange: (plan: PowerPlan) => void;
   activeCircuitId: string | null;
   isEditing: boolean;
@@ -41,6 +44,8 @@ export function PowerPathPlanner({
   plan,
   screenConfig,
   preset,
+  presets,
+  onPresetChange,
   onChange,
   activeCircuitId,
   isEditing,
@@ -51,6 +56,8 @@ export function PowerPathPlanner({
   const keys = useMemo(() => cabinetKeys(screenConfig), [screenConfig]);
   const usableAmps = value.circuitBreakerAmps * (1 - value.safetyMarginPercent / 100);
   const cabinetAmps = preset.maxPowerW / Math.max(1, value.voltage * value.powerFactor);
+  const usablePowerW = usablePowerPerPortW(value.voltage, value.circuitBreakerAmps, value.safetyMarginPercent, value.powerFactor);
+  const maxCabinetsPerCircuit = preset.maxPowerW > 0 ? Math.floor(usablePowerW / preset.maxPowerW) : null;
 
   function updateSettings(patch: Partial<PowerPlan>): void {
     onChange({ ...value, ...patch });
@@ -70,7 +77,7 @@ export function PowerPathPlanner({
   }
 
   function autoBalance(): void {
-    const count = Math.max(1, Math.ceil(keys.length * cabinetAmps / Math.max(.1, usableAmps)));
+    const count = Math.max(1, Math.ceil(keys.length * preset.maxPowerW / Math.max(.1, usablePowerW)));
     const circuits: PowerCircuit[] = Array.from({ length: count }, (_, index) => ({
       id: crypto.randomUUID(),
       name: `Цепь ${index + 1}`,
@@ -80,20 +87,6 @@ export function PowerPathPlanner({
     keys.forEach((key, index) => circuits[index % circuits.length].assignedCabinets.push(key));
     onChange({ ...value, circuits });
     onActiveCircuitChange(circuits[0]?.id ?? null);
-  }
-
-  function toggleCabinet(key: string): void {
-    if (!activeCircuitId) return;
-    const alreadyActive = value.circuits.find((circuit) => circuit.id === activeCircuitId)?.assignedCabinets.includes(key);
-    onChange({
-      ...value,
-      circuits: value.circuits.map((circuit) => ({
-        ...circuit,
-        assignedCabinets: circuit.assignedCabinets.filter((item) => item !== key).concat(
-          circuit.id === activeCircuitId && !alreadyActive ? [key] : []
-        )
-      }))
-    });
   }
 
   function clearCircuits(): void {
@@ -108,6 +101,11 @@ export function PowerPathPlanner({
   return (
     <fieldset className="power-path-panel">
       <legend>Power path planning</legend>
+      <label>Кабинет для расчёта питания
+        <select value={preset.id} onChange={(event) => onPresetChange(event.target.value)}>
+          {presets.map((item) => <option key={item.id} value={item.id}>{item.brand} {item.model} · {item.maxPowerW} Вт/каб.</option>)}
+        </select>
+      </label>
       <div className="power-settings-grid">
         <label>Напряжение, В<input type="number" min={1} value={value.voltage} onChange={(event) => updateSettings({ voltage: Number(event.target.value) })} /></label>
         <label>Автомат, А<input type="number" min={1} value={value.circuitBreakerAmps} onChange={(event) => updateSettings({ circuitBreakerAmps: Number(event.target.value) })} /></label>
@@ -128,27 +126,33 @@ export function PowerPathPlanner({
       {value.phases === 3 && <div className="phase-loads">{PHASES.map((phase, index) => <span key={phase}>{phase}: {phaseAmps[index].toFixed(1)} А</span>)}</div>}
       <div className="power-circuit-list">
         {value.circuits.map((circuit, index) => {
+          const watts = circuit.assignedCabinets.length * preset.maxPowerW;
           const amps = circuit.assignedCabinets.length * cabinetAmps;
-          const load = Math.round(amps / Math.max(.1, usableAmps) * 100);
+          const load = Math.round(watts / Math.max(.1, usablePowerW) * 100);
+          const overloaded = load > 100;
+          const remainingCabinets = maxCabinetsPerCircuit === null ? null : Math.max(0, maxCabinetsPerCircuit - circuit.assignedCabinets.length);
           return (
-            <button key={circuit.id} type="button" className={`${activeCircuitId === circuit.id ? 'is-active' : ''}${load > 100 ? ' is-overloaded' : ''}`} onClick={() => onActiveCircuitChange(circuit.id)} style={{ '--circuit-color': `hsl(${index * 71} 75% 48%)` } as React.CSSProperties}>
-              <b>{circuit.name} · {circuit.phase}</b><span>{circuit.assignedCabinets.length} каб. · {amps.toFixed(1)} А · {load}%</span>
+            <button key={circuit.id} type="button" className={`${activeCircuitId === circuit.id ? 'is-active' : ''}${overloaded ? ' is-overloaded' : ''}`} onClick={() => onActiveCircuitChange(circuit.id)} style={{ '--circuit-color': `hsl(${index * 71} 75% 48%)` } as React.CSSProperties}>
+              <b>{circuit.name} · {circuit.phase}</b>
+              {remainingCabinets === null ? (
+                <span>Нет мощности кабинета — лимит не рассчитан</span>
+              ) : (
+                <span className="circuit-capacity">
+                  <em className={overloaded ? 'is-overloaded' : ''}>{overloaded ? `Перегрузка ${load}%` : `Загрузка ${load}%`}</em><br />
+                  {circuit.assignedCabinets.length} из {maxCabinetsPerCircuit} каб. · ещё {remainingCabinets}<br />
+                  {(watts / 1000).toFixed(2)} из {(usablePowerW / 1000).toFixed(2)} кВт<br />
+                  {amps.toFixed(2)} А · лимит порта {POWER_PORT_MAX_W / 1000} кВт
+                  <i className="power-circuit-meter" aria-label={`Загрузка ${load}%`}><span className={overloaded ? 'is-overloaded' : ''} style={{ width: `${Math.min(load, 100)}%` }} /></i>
+                </span>
+              )}
             </button>
           );
         })}
       </div>
-      {value.circuits.length > 0 && (
-        <div className="power-cabinet-grid" style={{ gridTemplateColumns: `repeat(${screenConfig.cols}, 1fr)` }}>
-          {Array.from({ length: screenConfig.rows }, (_, row) => Array.from({ length: screenConfig.cols }, (_, col) => {
-            const key = `${col}-${row}`;
-            if (screenConfig.emptyCabinetKeys.includes(key)) return <span key={key} className="is-empty" />;
-            const circuitIndex = value.circuits.findIndex((circuit) => circuit.assignedCabinets.includes(key));
-            const order = circuitIndex >= 0 ? value.circuits[circuitIndex].assignedCabinets.indexOf(key) : -1;
-            return <button key={key} type="button" title={circuitIndex >= 0 ? `${value.circuits[circuitIndex].name}, кабинет ${order + 1}` : 'Не назначен'} onClick={() => toggleCabinet(key)} style={circuitIndex >= 0 ? { background: `hsl(${circuitIndex * 71} 65% 38%)` } : undefined}>{order >= 0 ? order + 1 : '—'}</button>;
-          }))}
-        </div>
-      )}
-      <p className={`data-path-summary${assigned < keys.length ? ' is-warning' : ''}`}>Назначено {assigned} из {keys.length} кабинетов · допустимо {usableAmps.toFixed(1)} А на цепь</p>
+      {(() => {
+        const overloaded = value.circuits.filter((circuit) => circuit.assignedCabinets.length * preset.maxPowerW > usablePowerW).length;
+        return <p className={`data-path-summary${assigned < keys.length || overloaded > 0 ? ' is-warning' : ''}`}>Назначено {assigned} из {keys.length} кабинетов{overloaded > 0 ? ` · перегружено портов: ${overloaded}` : ''} · допустимо {(usablePowerW / 1000).toFixed(2)} кВт на порт (не более 3 кВт){maxCabinetsPerCircuit !== null ? ` · до ${maxCabinetsPerCircuit} кабинетов на порт` : ''}</p>;
+      })()}
     </fieldset>
   );
 }

@@ -5,6 +5,7 @@ import type {
   ScreenInstance,
   ScreenVisualSettings,
   Processor,
+  ProcessorPort,
   PowerPlan
 } from '@shared/types';
 import {
@@ -25,6 +26,7 @@ import {
   type RoutingPattern,
   type StartCorner
 } from '@shared/autoRouting';
+import { usablePowerPerPortW } from '@shared/powerLimits';
 
 const OVERLAY_POSITION_LABELS: Record<OverlayPosition, string> = {
   'top-left': 'Сверху слева',
@@ -89,6 +91,26 @@ const TEXT_COLOR_PALETTE = [
   '#ffffff', '#000000', '#ef4444', '#f59e0b', '#facc15',
   '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ec4899'
 ];
+
+function dataPortsBySendingCard(ports: ProcessorPort[]): Array<{ key: string; title: string; ports: ProcessorPort[] }> {
+  const groups = new Map<string, { key: string; title: string; ports: ProcessorPort[] }>();
+  for (const port of ports) {
+    const key = `${port.controllerId ?? ''}\u0000${port.controllerName ?? ''}` || 'default';
+    const current = groups.get(key);
+    if (current) {
+      current.ports.push(port);
+      continue;
+    }
+    const cardNumber = port.controllerId?.match(/\d+/)?.[0] ?? port.controllerId;
+    const sendingCard = cardNumber ? `Sending card ${cardNumber}` : 'Sending card';
+    groups.set(key, {
+      key,
+      title: port.controllerName ? `${sendingCard} · ${port.controllerName}` : sendingCard,
+      ports: [port]
+    });
+  }
+  return [...groups.values()];
+}
 
 function overlayCoordinates(
   position: OverlayPosition,
@@ -336,6 +358,7 @@ export function TestPatternViewer({
   const [snapGuides, setSnapGuides] = useState<{ x?: number; y?: number }>({});
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const selectionStartRef = useRef<{ x: number; y: number; additive: boolean } | null>(null);
+  const pathDrawRef = useRef<{ screenId: string; cabinetKey: string } | null>(null);
   const placedDragRef = useRef<{
     id: string; x: number; y: number; origins: Record<string, { x: number; y: number }>;
   } | null>(null);
@@ -865,6 +888,10 @@ export function TestPatternViewer({
       const target = event.target as HTMLElement | null;
       const tagName = target?.tagName.toLowerCase();
       const isEditingText = target?.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+      if (!isEditingText && (isEditingDataPath || isEditingPowerPath) && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        if (addPathCabinetByArrow(event.key)) event.preventDefault();
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && !isEditingText && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         restoreHistory(event.shiftKey ? 'redo' : 'undo');
@@ -890,7 +917,7 @@ export function TestPatternViewer({
 
     window.addEventListener('keydown', handleEditorShortcut);
     return () => window.removeEventListener('keydown', handleEditorShortcut);
-  }, [selectedScreenIds, placedScreens]);
+  }, [selectedScreenIds, placedScreens, isEditingDataPath, isEditingPowerPath, activeDataPortId, activePowerCircuitId, pathPanelMode, selectedPlacedScreenId]);
 
   function selectPlacedScreen(screen: PlacedScreen): void {
     setSelectedPlacedScreenId(screen.id);
@@ -944,21 +971,26 @@ export function TestPatternViewer({
     };
   }
 
-  function editDataPathCabinet(screenId: string, cabinetKey: string): void {
+  function editDataPathCabinet(screenId: string, cabinetKey: string, truncateExisting = true): void {
     if (!isEditingDataPath || !activeDataPortId) return;
+    const screen = placedScreens.find((item) => item.id === screenId);
+    const activePort = screen?.processor?.ports.find((port) => port.portId === activeDataPortId);
+    const activeIndex = activePort?.assignedCabinets.indexOf(cabinetKey) ?? -1;
+    if (activeIndex >= 0 && !truncateExisting) return;
     rememberState();
     setPlacedScreens((current) => current.map((screen) => {
       if (screen.id !== screenId || !screen.processor) return screen;
-      const isOnActivePort = screen.processor.ports.find((port) => port.portId === activeDataPortId)?.assignedCabinets.includes(cabinetKey);
       return {
         ...screen,
         processor: {
           ...screen.processor,
           ports: screen.processor.ports.map((port) => ({
             ...port,
-            assignedCabinets: port.assignedCabinets.filter((key) => key !== cabinetKey).concat(
-              port.portId === activeDataPortId && !isOnActivePort ? [cabinetKey] : []
-            )
+            assignedCabinets: port.portId !== activeDataPortId
+              ? port.assignedCabinets.filter((key) => key !== cabinetKey)
+              : activeIndex >= 0
+                ? port.assignedCabinets.slice(0, activeIndex + 1)
+                : port.assignedCabinets.filter((key) => key !== cabinetKey).concat(cabinetKey)
           }))
         }
       };
@@ -989,25 +1021,28 @@ export function TestPatternViewer({
       : screen));
   }
 
-  function editPowerPathCabinet(screenId: string, cabinetKey: string): void {
+  function editPowerPathCabinet(screenId: string, cabinetKey: string, truncateExisting = true): void {
     if (!isEditingPowerPath || !activePowerCircuitId) return;
     const screen = placedScreens.find((item) => item.id === screenId);
     const plan = screen?.powerPlan;
     if (!plan) return;
+    const activeCircuit = plan.circuits.find((circuit) => circuit.id === activePowerCircuitId);
+    const activeIndex = activeCircuit?.assignedCabinets.indexOf(cabinetKey) ?? -1;
+    if (activeIndex >= 0 && !truncateExisting) return;
     rememberState();
     setPlacedScreens((current) => current.map((item) => {
       if (item.id !== screenId || !item.powerPlan) return item;
-      const isOnActiveCircuit = item.powerPlan.circuits
-        .find((circuit) => circuit.id === activePowerCircuitId)?.assignedCabinets.includes(cabinetKey);
       return {
         ...item,
         powerPlan: {
           ...item.powerPlan,
           circuits: item.powerPlan.circuits.map((circuit) => ({
             ...circuit,
-            assignedCabinets: circuit.assignedCabinets.filter((key) => key !== cabinetKey).concat(
-              circuit.id === activePowerCircuitId && !isOnActiveCircuit ? [cabinetKey] : []
-            )
+            assignedCabinets: circuit.id !== activePowerCircuitId
+              ? circuit.assignedCabinets.filter((key) => key !== cabinetKey)
+              : activeIndex >= 0
+                ? circuit.assignedCabinets.slice(0, activeIndex + 1)
+                : circuit.assignedCabinets.filter((key) => key !== cabinetKey).concat(cabinetKey)
           }))
         }
       };
@@ -1423,6 +1458,62 @@ export function TestPatternViewer({
     return preview.toDataURL('image/png');
   }
 
+  function addPathCabinetByArrow(key: string): boolean {
+    const screen = placedScreens.find((item) => item.id === selectedPlacedScreenId);
+    if (!screen) return false;
+    const activeKeys = pathPanelMode === 'data'
+      ? screen.processor?.ports.find((port) => port.portId === activeDataPortId)?.assignedCabinets ?? []
+      : screen.powerPlan?.circuits.find((circuit) => circuit.id === activePowerCircuitId)?.assignedCabinets ?? [];
+    const origin = activeKeys.at(-1);
+    if (!origin) return false;
+    const [col, row] = origin.split('-').map(Number);
+    const delta = key === 'ArrowLeft' ? [-1, 0] : key === 'ArrowRight' ? [1, 0] : key === 'ArrowUp' ? [0, -1] : [0, 1];
+    let nextCol = col + delta[0];
+    let nextRow = row + delta[1];
+    const empty = new Set(screen.screenConfig.emptyCabinetKeys);
+    while (nextCol >= 0 && nextCol < screen.screenConfig.cols && nextRow >= 0 && nextRow < screen.screenConfig.rows) {
+      const nextKey = `${nextCol}-${nextRow}`;
+      if (!empty.has(nextKey)) {
+        if (pathPanelMode === 'data' && isEditingDataPath) editDataPathCabinet(screen.id, nextKey);
+        else if (pathPanelMode === 'power' && isEditingPowerPath) editPowerPathCabinet(screen.id, nextKey);
+        else return false;
+        return true;
+      }
+      nextCol += delta[0];
+      nextRow += delta[1];
+    }
+    return false;
+  }
+
+  function drawPathPointerDown(event: React.PointerEvent<SVGRectElement>, screenId: string, cabinetKey: string): void {
+    if (event.button !== 2) return;
+    event.preventDefault();
+    event.stopPropagation();
+    pathDrawRef.current = { screenId, cabinetKey };
+    if (pathPanelMode === 'data') editDataPathCabinet(screenId, cabinetKey, false);
+    else editPowerPathCabinet(screenId, cabinetKey, false);
+  }
+
+  function drawPathPointerEnter(event: React.PointerEvent<SVGRectElement>, screenId: string, cabinetKey: string): void {
+    if (event.buttons !== 2 || pathDrawRef.current?.screenId !== screenId || pathDrawRef.current.cabinetKey === cabinetKey) return;
+    event.preventDefault();
+    pathDrawRef.current = { screenId, cabinetKey };
+    if (pathPanelMode === 'data') editDataPathCabinet(screenId, cabinetKey, false);
+    else editPowerPathCabinet(screenId, cabinetKey, false);
+  }
+
+  function stopPathPointerDraw(): void {
+    pathDrawRef.current = null;
+  }
+
+  function updateSelectedPowerPreset(presetId: string): void {
+    if (!selectedPlacedScreenId) return;
+    rememberState();
+    setPlacedScreens((current) => current.map((screen) => screen.id === selectedPlacedScreenId
+      ? { ...screen, screenConfig: { ...screen.screenConfig, presetId } }
+      : screen));
+  }
+
   function renderImportedSvgPreview(
     importedConfig: ScreenConfig,
     importedPreset: CabinetPreset,
@@ -1460,12 +1551,17 @@ export function TestPatternViewer({
     setImportStatus('Чтение NovaStar…');
     try {
       const imported = await importNovaStarProject(file);
-      onPresetsImport(imported.presets);
+      // SRCX/SCR часто не содержат паспортную мощность и импорт создаёт для
+      // них технический пресет. Для расчёта питания используем выбранный
+      // пользователем кабинет из общей базы, а не это служебное значение.
+      const powerPreset = preset;
+      if (!powerPreset) throw new Error('Выберите кабинет из базы перед импортом');
       const baseY = placedScreens.reduce((bottom, screen) => Math.max(bottom, screen.y + screen.height), 0) + 80;
       let nextY = baseY;
       const screens = imported.screens.map((screen) => {
-        const width = screen.config.cols * screen.preset.widthMm * WORKSPACE_PX_PER_MM;
-        const height = screen.config.rows * screen.preset.heightMm * WORKSPACE_PX_PER_MM;
+        const screenConfig: ScreenConfig = { ...screen.config, presetId: powerPreset.id };
+        const width = screenConfig.cols * powerPreset.widthMm * WORKSPACE_PX_PER_MM;
+        const height = screenConfig.rows * powerPreset.heightMm * WORKSPACE_PX_PER_MM;
         const visualSettings = {
           ...currentVisualSettings(),
           config: visiblePatternConfig(config),
@@ -1474,8 +1570,8 @@ export function TestPatternViewer({
         const placed: PlacedScreen = {
           id: crypto.randomUUID(),
           name: screen.name,
-          imageSource: renderImportedPreview(screen.config, screen.preset, screen.name),
-          screenConfig: screen.config,
+          imageSource: renderImportedPreview(screenConfig, powerPreset, screen.name),
+          screenConfig,
           visualSettings,
           width,
           height,
@@ -1493,7 +1589,7 @@ export function TestPatternViewer({
       setSelectedScreenIds([]);
       window.requestAnimationFrame(() => fitScreensInWorkspace(allScreens));
       nextScreenNumber.current += screens.length;
-      setImportStatus(`Импортировано экранов: ${screens.length}`);
+      setImportStatus(`Импортировано экранов: ${screens.length} · питание по базе: ${powerPreset.brand} ${powerPreset.model} (${powerPreset.maxPowerW} Вт/каб.)`);
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : 'Не удалось импортировать файл NovaStar');
     }
@@ -2224,7 +2320,11 @@ export function TestPatternViewer({
                   </>
                 )}
                 <div className="data-port-list">
-                  {selectedDataScreen.processor.ports.map((port, portIndex) => {
+                  {dataPortsBySendingCard(selectedDataScreen.processor.ports).map((group) => (
+                    <section className="sending-card-group" key={group.key}>
+                      <h4>{group.title}</h4>
+                      {group.ports.map((port) => {
+                    const portIndex = selectedDataScreen.processor!.ports.indexOf(port);
                     const pixels = port.assignedCabinets.length * (selectedDataPreset?.resolutionX ?? 0) * (selectedDataPreset?.resolutionY ?? 0);
                     const pixelLoad = port.maxPixels > 0 ? pixels / port.maxPixels : 0;
                     const cabinetLoad = port.maxCabinets ? port.assignedCabinets.length / port.maxCabinets : 0;
@@ -2239,7 +2339,7 @@ export function TestPatternViewer({
                         style={{ '--port-color': `hsl(${portIndex * 83} 85% 60%)` } as React.CSSProperties}
                       >
                         <span className="data-port-heading">
-                          <b>{port.portId}</b>
+                          <b>Port {port.sourcePortName ?? port.portId}</b>
                           <em className={invalid ? 'is-overloaded' : ''}>{invalid ? `Перегрузка ${loadPercent}%` : `${loadPercent}%`}</em>
                         </span>
                         <span className="data-port-stats">{port.assignedCabinets.length} каб. · {pixels.toLocaleString()} / {port.maxPixels.toLocaleString()} px</span>
@@ -2248,7 +2348,9 @@ export function TestPatternViewer({
                         </span>
                       </button>
                     );
-                  })}
+                      })}
+                    </section>
+                  ))}
                 </div>
                 {(() => {
                   const installed = selectedDataScreen.screenConfig.cols * selectedDataScreen.screenConfig.rows - selectedDataScreen.screenConfig.emptyCabinetKeys.length;
@@ -2260,18 +2362,6 @@ export function TestPatternViewer({
                   ).length ?? 0;
                   return <p className={`data-path-summary${assigned < installed || overloaded > 0 ? ' is-warning' : ''}`}>Назначено {assigned} из {installed} кабинетов{overloaded > 0 ? ` · перегружено портов: ${overloaded}` : ''}</p>;
                 })()}
-                <div className="data-cabinet-grid" style={{ gridTemplateColumns: `repeat(${selectedDataScreen.screenConfig.cols}, 1fr)` }}>
-                  {Array.from({ length: selectedDataScreen.screenConfig.rows }, (_, row) =>
-                    Array.from({ length: selectedDataScreen.screenConfig.cols }, (_, col) => {
-                      const key = `${col}-${row}`;
-                      if (selectedDataScreen.screenConfig.emptyCabinetKeys.includes(key)) return <span key={key} className="is-empty" />;
-                      const portIndex = selectedDataScreen.processor?.ports.findIndex((port) => port.assignedCabinets.includes(key)) ?? -1;
-                      const port = portIndex >= 0 ? selectedDataScreen.processor?.ports[portIndex] : undefined;
-                      const order = port?.assignedCabinets.indexOf(key) ?? -1;
-                      return <span key={key} className={activeDataPortId && port?.portId !== activeDataPortId ? 'is-dimmed' : ''} title={port ? `${port.portId}, кабинет ${order + 1}` : 'Не назначен'} style={portIndex >= 0 ? { background: `hsl(${portIndex * 83} 70% 38%)` } : undefined}>{order >= 0 ? order + 1 : '—'}</span>;
-                    })
-                  )}
-                </div>
               </>
             )}
           </fieldset>}
@@ -2282,6 +2372,8 @@ export function TestPatternViewer({
                 plan={selectedDataScreen.powerPlan}
                 screenConfig={selectedDataScreen.screenConfig}
                 preset={selectedDataPreset}
+                presets={presets}
+                onPresetChange={updateSelectedPowerPreset}
                 onChange={updatePowerPlan}
                 activeCircuitId={activePowerCircuitId}
                 isEditing={isEditingPowerPath}
@@ -2336,7 +2428,13 @@ export function TestPatternViewer({
                   tabIndex={0}
                   aria-label={`Выбрать ${screen.name}`}
                   aria-pressed={selectedScreenIds.includes(screen.id)}
-                  onContextMenu={(event) => toggleCabinetInScreen(event, screen)}
+                  onContextMenu={(event) => {
+                    if (workspaceMode === 'wiring' && (isEditingDataPath || isEditingPowerPath)) {
+                      event.preventDefault();
+                      return;
+                    }
+                    toggleCabinetInScreen(event, screen);
+                  }}
                   onPointerDown={(event) => startPlacedScreenDrag(event, screen)}
                   onPointerMove={movePlacedScreen}
                   onPointerUp={stopPlacedScreenDrag}
@@ -2376,6 +2474,8 @@ export function TestPatternViewer({
                     return (
                       <svg
                         className={`data-path-overlay${isEditingDataPath && selectedPlacedScreenId === screen.id ? ' is-editing' : ''}`}
+                        onPointerUp={stopPathPointerDraw}
+                        onPointerCancel={stopPathPointerDraw}
                         viewBox={`0 0 ${cols} ${rows}`}
                         style={{
                           left: '50%',
@@ -2425,7 +2525,7 @@ export function TestPatternViewer({
                           Array.from({ length: cols }, (_, col) => {
                             const key = `${col}-${row}`;
                             if (screen.screenConfig.emptyCabinetKeys.includes(key)) return null;
-                            return <rect key={`hit-${key}`} className="data-path-hit" x={col} y={row} width="1" height="1" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); editDataPathCabinet(screen.id, key); }} />;
+                            return <rect key={`hit-${key}`} className="data-path-hit" x={col} y={row} width="1" height="1" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); if (event.button === 0) editDataPathCabinet(screen.id, key); else drawPathPointerDown(event, screen.id, key); }} onPointerEnter={(event) => drawPathPointerEnter(event, screen.id, key)} />;
                           })
                         )}
                       </svg>
@@ -2437,42 +2537,58 @@ export function TestPatternViewer({
                     const overlayWidth = screen.rotation === 90 || screen.rotation === 270 ? screen.height : screen.width;
                     const overlayHeight = screen.rotation === 90 || screen.rotation === 270 ? screen.width : screen.height;
                     const screenPreset = presets.find((item) => item.id === screen.screenConfig.presetId) ?? presets[0];
-                    const cabinetAmps = screenPreset.maxPowerW / Math.max(1, screen.powerPlan.voltage * screen.powerPlan.powerFactor);
-                    const usableAmps = screen.powerPlan.circuitBreakerAmps * (1 - screen.powerPlan.safetyMarginPercent / 100);
+                    const usablePowerW = usablePowerPerPortW(
+                      screen.powerPlan.voltage,
+                      screen.powerPlan.circuitBreakerAmps,
+                      screen.powerPlan.safetyMarginPercent,
+                      screen.powerPlan.powerFactor
+                    );
                     return (
                       <svg
                         className={`data-path-overlay power-path-overlay${isEditingPowerPath ? ' is-editing' : ''}`}
+                        onPointerUp={stopPathPointerDraw}
+                        onPointerCancel={stopPathPointerDraw}
                         viewBox={`0 0 ${cols} ${rows}`}
                         style={{ left: '50%', top: '50%', width: overlayWidth, height: overlayHeight, transform: `translate(-50%, -50%) rotate(${screen.rotation}deg)` }}
                       >
-                        {isEditingPowerPath && screen.powerPlan.circuits.flatMap((circuit, circuitIndex) => circuit.assignedCabinets.map((key) => {
+                        {isEditingPowerPath && screen.powerPlan.circuits.flatMap((circuit) => circuit.assignedCabinets.map((key) => {
                           const [col, row] = key.split('-').map(Number);
-                          return <rect key={`${circuit.id}-${key}`} x={col} y={row} width="1" height="1" fill={`hsl(${circuitIndex * 71} 75% 55% / .22)`} />;
+                          return <rect key={`${circuit.id}-${key}`} x={col} y={row} width="1" height="1" fill="rgb(220 38 38 / .22)" />;
                         }))}
-                        {screen.powerPlan.circuits.map((circuit, circuitIndex) => {
+                        {screen.powerPlan.circuits.map((circuit) => {
                           const centers = circuit.assignedCabinets.map((key) => {
                             const [col, row] = key.split('-').map(Number);
                             return { x: col + .5, y: row + .5 };
                           });
                           const points = centers.map((point) => `${point.x},${point.y}`).join(' ');
-                          const overloaded = circuit.assignedCabinets.length * cabinetAmps > usableAmps;
-                          const color = overloaded ? '#ef4444' : `hsl(${circuitIndex * 71} 85% 58%)`;
+                          const overloaded = circuit.assignedCabinets.length * screenPreset.maxPowerW > usablePowerW;
+                          const color = overloaded ? '#ef4444' : '#dc2626';
+                          const first = circuit.assignedCabinets[0]?.split('-').map(Number);
+                          const last = circuit.assignedCabinets.at(-1)?.split('-').map(Number);
                           return (
-                            <g key={circuit.id} className={activePowerCircuitId && activePowerCircuitId !== circuit.id ? 'is-dimmed' : ''}>
-                              {centers.length > 1 && <polyline points={points} fill="none" stroke={color} strokeWidth=".07" strokeDasharray=".18 .12" strokeLinecap="round" strokeLinejoin="round" />}
-                              {centers.map((point, index) => (
-                                <g key={`${circuit.id}-${index}`}>
-                                  <circle cx={point.x} cy={point.y} r=".15" fill="#101820" stroke={color} strokeWidth=".045" />
-                                  <text x={point.x} y={point.y + .045} textAnchor="middle" fill="#fff" fontSize=".16" fontWeight="800">{index + 1}</text>
-                                </g>
-                              ))}
+                            <g key={circuit.id} className={`${activePowerCircuitId && activePowerCircuitId !== circuit.id ? 'is-dimmed ' : ''}${overloaded ? 'is-overloaded' : ''}`}>
+                              <title>{circuit.name}: {overloaded ? 'превышение лимита силовой нагрузки на порт' : 'силовой путь в пределах лимита'}</title>
+                              {centers.length > 1 && <>
+                                <polyline points={points} fill="none" stroke="rgba(255,255,255,.82)" strokeWidth=".105" strokeLinecap="round" strokeLinejoin="round" />
+                                <polyline points={points} fill="none" stroke={color} strokeWidth=".052" strokeLinecap="round" strokeLinejoin="round" />
+                                {centers.slice(0, -1).map((point, index) => {
+                                  const next = centers[index + 1];
+                                  const x = (point.x + next.x) / 2;
+                                  const y = (point.y + next.y) / 2;
+                                  const angle = Math.atan2(next.y - point.y, next.x - point.x) * 180 / Math.PI;
+                                  return <path key={`${circuit.id}-arrow-${index}`} d="M-.085,-.065 L.09,0 L-.085,.065 Z" transform={`translate(${x} ${y}) rotate(${angle})`} fill={color} stroke="rgba(255,255,255,.92)" strokeWidth=".018" strokeLinejoin="round" />;
+                                })}
+                              </>}
+                              {first && <><circle cx={first[0] + .5} cy={first[1] + .5} r=".14" fill="#fff" opacity=".92" /><circle cx={first[0] + .5} cy={first[1] + .5} r=".095" fill={color} /></>}
+                              {last && <><circle cx={last[0] + .5} cy={last[1] + .5} r=".14" fill="#fff" opacity=".92" /><circle cx={last[0] + .5} cy={last[1] + .5} r=".095" fill={color} /></>}
+                              {overloaded && last && <g className="power-overload-marker" transform={`translate(${last[0] + .82} ${last[1] + .18})`}><circle r=".16" fill="#facc15" stroke="#7f1d1d" strokeWidth=".035" /><text y=".075" textAnchor="middle">!</text></g>}
                             </g>
                           );
                         })}
                         {isEditingPowerPath && Array.from({ length: rows }, (_, row) => Array.from({ length: cols }, (_, col) => {
                           const key = `${col}-${row}`;
                           if (screen.screenConfig.emptyCabinetKeys.includes(key)) return null;
-                          return <rect key={`power-hit-${key}`} className="data-path-hit" x={col} y={row} width="1" height="1" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); editPowerPathCabinet(screen.id, key); }} />;
+                          return <rect key={`power-hit-${key}`} className="data-path-hit" x={col} y={row} width="1" height="1" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); if (event.button === 0) editPowerPathCabinet(screen.id, key); else drawPathPointerDown(event, screen.id, key); }} onPointerEnter={(event) => drawPathPointerEnter(event, screen.id, key)} />;
                         }))}
                       </svg>
                     );
