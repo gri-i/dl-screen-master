@@ -8,6 +8,60 @@ export interface ImportedNovaStarScreen {
   preset: CabinetPreset;
   processor?: Processor;
   sourceCabinetCount: number;
+  /** Абсолютная позиция сцены в пикселях NovaStar (для объединения по sender). */
+  origin?: { x: number; y: number };
+}
+
+function mergeScreensBySendingCard(screens: ImportedNovaStarScreen[]): ImportedNovaStarScreen[] {
+  const groups = new Map<string, ImportedNovaStarScreen[]>();
+  for (const screen of screens) {
+    const cards = new Map((screen.processor?.ports ?? []).map((port) => [`${port.controllerId ?? ''}\u0000${port.controllerName ?? ''}`, port]));
+    const [card] = cards.keys();
+    const key = card && cards.size === 1 && screen.origin ? `${card}\u0000${screen.preset.id}` : `screen\u0000${screen.name}`;
+    groups.set(key, [...(groups.get(key) ?? []), screen]);
+  }
+
+  return Array.from(groups.values(), (group) => {
+    if (group.length === 1) return group[0];
+    const preset = group[0].preset;
+    const minX = Math.min(...group.map((screen) => screen.origin!.x));
+    const minY = Math.min(...group.map((screen) => screen.origin!.y));
+    const occupied = new Set<string>();
+    const ports = new Map<string, ProcessorPort>();
+    let cols = 0;
+    let rows = 0;
+    for (const screen of group) {
+      const offsetCol = Math.round((screen.origin!.x - minX) / preset.resolutionX);
+      const offsetRow = Math.round((screen.origin!.y - minY) / preset.resolutionY);
+      for (let row = 0; row < screen.config.rows; row += 1) for (let col = 0; col < screen.config.cols; col += 1) {
+        const oldKey = `${col}-${row}`;
+        if (screen.config.emptyCabinetKeys.includes(oldKey)) continue;
+        occupied.add(`${col + offsetCol}-${row + offsetRow}`);
+      }
+      cols = Math.max(cols, offsetCol + screen.config.cols);
+      rows = Math.max(rows, offsetRow + screen.config.rows);
+      for (const port of screen.processor?.ports ?? []) {
+        const current = ports.get(port.portId) ?? { ...port, assignedCabinets: [] };
+        current.assignedCabinets.push(...port.assignedCabinets.map((key) => {
+          const [col, row] = key.split('-').map(Number);
+          return `${col + offsetCol}-${row + offsetRow}`;
+        }));
+        ports.set(port.portId, current);
+      }
+    }
+    const emptyCabinetKeys: string[] = [];
+    for (let row = 0; row < rows; row += 1) for (let col = 0; col < cols; col += 1) {
+      const key = `${col}-${row}`;
+      if (!occupied.has(key)) emptyCabinetKeys.push(key);
+    }
+    const firstPort = ports.values().next().value as ProcessorPort;
+    return {
+      name: `Sending card ${firstPort.controllerId ?? ''}${firstPort.controllerName ? ` · ${firstPort.controllerName}` : ''}`,
+      config: { presetId: preset.id, cols, rows, emptyCabinetKeys }, preset,
+      processor: { id: crypto.randomUUID(), brand: 'NovaStar', model: firstPort.controllerName ?? 'Sending card', ports: Array.from(ports.values()) },
+      sourceCabinetCount: occupied.size, origin: { x: minX, y: minY }
+    };
+  });
 }
 
 function text(element: Element, tag: string): string {
@@ -51,12 +105,205 @@ function matches(bytes: Uint8Array, offset: number, pattern: readonly number[]):
   return pattern.every((value, index) => bytes[offset + index] === value);
 }
 
-function uint16be(bytes: Uint8Array, offset: number): number {
-  return (bytes[offset] << 8) | bytes[offset + 1];
+interface DscScreenHeader {
+  senderIndex: number;
+  cols: number;
+  rows: number;
+  resolutionX: number;
+  resolutionY: number;
+  headerOffset: number;
+  recordStart: number;
 }
 
-function uint16le(bytes: Uint8Array, offset: number): number {
-  return bytes[offset] | (bytes[offset + 1] << 8);
+/**
+ * Первая таблица DSCI не содержит компактного заголовка размера экрана.
+ * В записях по 17 байт хранятся номер колонки (byte 0) и номер кабинета
+ * (byte 3); соседнее число — это общее количество кабинетов, не колонки.
+ */
+function readFirstDscGrid(bytes: Uint8Array, recordStart: number): Pick<DscScreenHeader, 'cols' | 'rows'> | null {
+  const columns = new Map<number, number>();
+  for (let offset = recordStart; offset + 17 <= bytes.length; offset += 17) {
+    const isCabinetRecord =
+      bytes[offset + 1] === 0 && bytes[offset + 2] === 0 &&
+      bytes[offset + 4] === 0 && bytes[offset + 5] === 0 &&
+      bytes[offset + 6] === 1 && bytes[offset + 7] === 64 &&
+      bytes[offset + 8] === 0 && bytes[offset + 9] === 1 && bytes[offset + 10] === 0;
+    if (!isCabinetRecord) break;
+    const column = bytes[offset];
+    columns.set(column, (columns.get(column) ?? 0) + 1);
+  }
+  if (columns.size === 0) return null;
+  return { cols: columns.size, rows: Math.max(...columns.values()) };
+}
+
+/** Находит начало первой таблицы кабинетов в двух вариантах бинарного DSCI. */
+function findDscRecordStart(bytes: Uint8Array): { recordStart: number; count: number } | null {
+  const legacyMarker = [0x00, 0x00, 0x01, 0x40, 0x00, 0x01, 0x00, 0x00] as const;
+  let best: { recordStart: number; count: number } | null = null;
+
+  for (let offset = 4; offset < bytes.length - legacyMarker.length; offset += 1) {
+    if (!matches(bytes, offset, legacyMarker)) continue;
+    let count = 0;
+    while (matches(bytes, offset + count * 17, legacyMarker)) count += 1;
+    if (!best || count > best.count) best = { recordStart: offset - 4, count };
+  }
+  if (best && best.recordStart >= 0) return best;
+
+  // В другом варианте DSCI запись начинается с координат кабинета, а в
+  // байтах 6–9 содержится его разрешение (например, 128 × 128).
+  for (let offset = 0; offset + 51 <= bytes.length; offset += 1) {
+    const width = bytes[offset + 6] | (bytes[offset + 7] << 8);
+    const height = bytes[offset + 8] | (bytes[offset + 9] << 8);
+    const looksLikeRecord = width >= 16 && width <= 4096 && height >= 16 && height <= 4096 && bytes[offset + 10] === 1;
+    if (!looksLikeRecord) continue;
+    let count = 0;
+    while (offset + count * 17 + 17 <= bytes.length) {
+      const recordOffset = offset + count * 17;
+      const recordWidth = bytes[recordOffset + 6] | (bytes[recordOffset + 7] << 8);
+      const recordHeight = bytes[recordOffset + 8] | (bytes[recordOffset + 9] << 8);
+      if (recordWidth !== width || recordHeight !== height || bytes[recordOffset + 10] !== 1) break;
+      count += 1;
+    }
+    if (count >= 2 && (!best || count > best.count)) best = { recordStart: offset, count };
+  }
+  return best;
+}
+
+function readDscScreenHeaders(bytes: Uint8Array, firstRecordStart: number, firstResolution: Pick<DscScreenHeader, 'resolutionX' | 'resolutionY'>): DscScreenHeader[] {
+  const headerOffsets: number[] = [];
+
+  // Subsequent NovaLCT screen blocks contain a compact header:
+  // 02 01 00 00 00 00 00 <rows> 00 <cols> 00 <sending card index>.
+  for (let offset = 0; offset <= bytes.length - 12; offset += 1) {
+    if (!matches(bytes, offset, [0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])) continue;
+    const rows = bytes[offset + 7];
+    const cols = bytes[offset + 9];
+    if (bytes[offset + 8] !== 0 || bytes[offset + 10] !== 0 || cols === 0 || rows === 0 || cols > 100 || rows > 100) continue;
+    if (!headerOffsets.includes(offset)) headerOffsets.push(offset);
+  }
+
+  if (headerOffsets.length > 0) {
+    return headerOffsets.map((headerOffset, index) => ({
+      senderIndex: bytes[headerOffset + 11],
+      cols: bytes[headerOffset + 9],
+      rows: bytes[headerOffset + 7],
+      ...firstResolution,
+      headerOffset,
+      // The first compact header closes the first table; every next table
+      // starts immediately after the preceding compact header.
+      recordStart: index === 0 ? firstRecordStart : headerOffset + 17
+    }));
+  }
+
+  const firstGrid = readFirstDscGrid(bytes, firstRecordStart);
+  return firstGrid
+    ? [{ senderIndex: 0, ...firstGrid, ...firstResolution, headerOffset: -1, recordStart: firstRecordStart }]
+    : [];
+}
+
+interface DscCabinetRecord {
+  key: string;
+  port: number;
+  order: number;
+  sequence: number;
+}
+
+function readDscCabinetRecords(bytes: Uint8Array, header: DscScreenHeader, nextHeaderOffset: number): DscCabinetRecord[] {
+  const records: DscCabinetRecord[] = [];
+  for (let offset = header.recordStart, sequence = 0; offset + 17 <= nextHeaderOffset; offset += 17, sequence += 1) {
+    if (bytes[offset + 6] !== 128 || bytes[offset + 8] !== 128 || bytes[offset + 10] !== 1) continue;
+    const colPixels = bytes[offset] | (bytes[offset + 1] << 8);
+    const row = bytes[offset + 2] | (bytes[offset + 3] << 8);
+    if (colPixels % 128 !== 0) continue;
+    const col = colPixels / 128;
+    if (col < 0 || col >= header.cols || row < 0 || row >= header.rows) continue;
+    records.push({ key: `${col}-${row}`, port: bytes[offset + 12], order: bytes[offset + 13], sequence });
+  }
+  return records;
+}
+
+function dscPortsFromRecords(header: DscScreenHeader, records: DscCabinetRecord[]): ProcessorPort[] {
+  const senderNumber = header.senderIndex + 1;
+  const groups = new Map<number, DscCabinetRecord[]>();
+  const assigned = new Set<string>();
+  records.forEach((record) => groups.set(record.port, [...(groups.get(record.port) ?? []), record]));
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([port, group]) => ({
+      portId: `Sending card ${senderNumber} · Port ${port + 1}`,
+      controllerId: String(senderNumber),
+      controllerName: `Sending card ${senderNumber}`,
+      sourcePortName: String(port + 1),
+      maxPixels: 650000,
+      assignedCabinets: group
+        .sort((a, b) => a.order - b.order || a.sequence - b.sequence)
+        .map((record) => record.key)
+        .filter((key) => {
+          if (assigned.has(key)) return false;
+          assigned.add(key);
+          return true;
+        })
+    }));
+}
+
+function buildDscImport(fileName: string, bytes: Uint8Array, headers: DscScreenHeader[]): {
+  screens: ImportedNovaStarScreen[];
+  presets: CabinetPreset[];
+} {
+  const presets = new Map<string, CabinetPreset>();
+  const screens = headers.map((header, index) => {
+    const model = `SCR ${header.resolutionX}x${header.resolutionY}`;
+    const presetId = `novalct-${slug(`${fileBaseName(fileName)}-${model}`)}`;
+    let preset = presets.get(presetId);
+    if (!preset) {
+      preset = {
+        id: presetId,
+        brand: 'NovaLCT',
+        model,
+        widthMm: header.resolutionX,
+        heightMm: header.resolutionY,
+        pixelPitchMm: 1,
+        resolutionX: header.resolutionX,
+        resolutionY: header.resolutionY,
+        // В бинарном DSCI/SCR нет паспортных веса и мощности кабинета.
+        weightKg: 0.01,
+        maxPowerW: 0.1,
+        avgPowerW: 0.1
+      };
+      presets.set(presetId, preset);
+    }
+
+    const nextHeaderOffset = index === 0
+      ? header.headerOffset
+      : headers[index + 1]?.headerOffset ?? bytes.length;
+    const records = readDscCabinetRecords(bytes, header, nextHeaderOffset);
+    const assignedCabinets = Array.from(new Set(records.map((record) => record.key)));
+    const senderNumber = header.senderIndex + 1;
+    const processor: Processor = {
+      id: `novalct-sending-${senderNumber}`,
+      brand: 'NovaStar',
+      model: `Sending card ${senderNumber}`,
+      ports: dscPortsFromRecords(header, records)
+    };
+
+    const emptyCabinetKeys: string[] = [];
+    for (let row = 0; row < header.rows; row += 1) {
+      for (let col = 0; col < header.cols; col += 1) {
+        if (!assignedCabinets.includes(`${col}-${row}`)) emptyCabinetKeys.push(`${col}-${row}`);
+      }
+    }
+
+    return {
+      name: `Screen${senderNumber}`,
+      config: { presetId, cols: header.cols, rows: header.rows, emptyCabinetKeys },
+      preset,
+      processor,
+      sourceCabinetCount: assignedCabinets.length,
+      origin: { x: 0, y: 0 }
+    };
+  });
+
+  return { screens, presets: Array.from(presets.values()) };
 }
 
 function importNovaStarDsc(fileName: string, bytes: Uint8Array): {
@@ -65,34 +312,26 @@ function importNovaStarDsc(fileName: string, bytes: Uint8Array): {
 } | null {
   if (!matches(bytes, 0, [0x44, 0x53, 0x43, 0x49])) return null;
 
-  const marker = [0x00, 0x00, 0x01, 0x40, 0x00, 0x01, 0x00, 0x00] as const;
-  let bestMarkerOffset = -1;
-  let bestCount = 0;
-
-  for (let offset = 4; offset < bytes.length - marker.length; offset += 1) {
-    if (!matches(bytes, offset, marker)) continue;
-    let count = 0;
-    while (matches(bytes, offset + count * 17, marker)) count += 1;
-    if (count > bestCount) {
-      bestCount = count;
-      bestMarkerOffset = offset;
-    }
-  }
-
-  const recordStart = bestMarkerOffset - 4;
-  if (bestCount < 2 || recordStart < 0) {
+  const recordTable = findDscRecordStart(bytes);
+  if (!recordTable) {
     throw new Error('Файл SCR распознан как NovaLCT DSCI, но таблица кабинетов не найдена');
   }
+  const { recordStart } = recordTable;
+  let bestCount = recordTable.count;
+
+  // 00 00 01 40 00 01 — служебный маркер записи DSCI, а не разрешение
+  // кабинета. В этом SCR конфигурация receiver card задаёт 128 × 128 px.
+  // Эти значения дают корректную нагрузку: 40 кабинетов на порту = 655 360 px.
+  const resolutionX = 128;
+  const resolutionY = 128;
+
+  const screenHeaders = readDscScreenHeaders(bytes, recordStart, { resolutionX, resolutionY });
+  if (screenHeaders.some((header) => header.headerOffset >= 0)) return buildDscImport(fileName, bytes, screenHeaders);
 
   const headerCount = bytes[recordStart - 9] ?? 0;
   if (headerCount >= bestCount && headerCount <= 4096 && recordStart + headerCount * 17 <= bytes.length) {
     bestCount = headerCount;
   }
-
-  const widthFromMarker = uint16be(bytes, bestMarkerOffset + 2);
-  const heightFromMarker = uint16le(bytes, bestMarkerOffset + 4);
-  const resolutionX = widthFromMarker > 0 ? widthFromMarker : 320;
-  const resolutionY = heightFromMarker > 0 ? heightFromMarker : 256;
 
   const columns = new Map<number, number[]>();
   for (let index = 0; index < bestCount; index += 1) {
@@ -132,9 +371,9 @@ function importNovaStarDsc(fileName: string, bytes: Uint8Array): {
     pixelPitchMm: 1,
     resolutionX,
     resolutionY,
-    weightKg: 0,
-    maxPowerW: 0,
-    avgPowerW: 0
+    weightKg: 0.01,
+    maxPowerW: 0.1,
+    avgPowerW: 0.1
   };
 
   return {
@@ -290,12 +529,13 @@ export async function importNovaStarProject(file: File): Promise<{
       config: { presetId, cols, rows, emptyCabinetKeys },
       preset,
       processor,
-      sourceCabinetCount: cabinets.length
+      sourceCabinetCount: cabinets.length,
+      origin: { x: minX, y: minY }
     });
   }
 
   if (screens.length === 0) throw new Error('В файле NovaStar нет кабинетов для импорта');
-  return { screens, presets: Array.from(presetsById.values()) };
+  return { screens: mergeScreensBySendingCard(screens), presets: Array.from(presetsById.values()) };
 }
 
 export const importNovaStarSrcx = importNovaStarProject;

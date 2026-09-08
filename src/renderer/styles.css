@@ -182,6 +182,10 @@ button:hover { border-color: #27c9e8; color: #fff; }
 .placed-screen-frame.is-selected .screen-name-badge {
   color: #061317; border-color: #28c6e6; background: #28c6e6;
 }
+.placed-screen-frame.is-active-screen .screen-name-badge {
+  color: #123323; border-color: #86efac; background: #bbf7d0;
+  box-shadow: 0 0 0 2px rgba(134,239,172,.2);
+}
 .data-path-panel { display: grid; gap: 10px; }
 .checkerboard-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 7px 0 10px; }
 .checkerboard-presets button { display: flex; align-items: center; gap: 0; min-width: 0; padding: 5px 6px; text-align: left; }
@@ -437,7 +441,7 @@ button { padding: 6px 8px; border-radius: 5px; font-size: 11px; }
 .pattern-layout { grid-template-columns: minmax(420px, 1fr) 320px; }
 .pattern-controls { padding: 9px 10px 9px 9px; }
 .pattern-controls > button { margin-bottom: 5px; }
-.canvas-pane { padding: 18px; }
+.canvas-pane { padding: 18px; overflow: hidden; }
 .data-path-panel, .auto-routing-panel, .power-path-panel { gap: 6px; }
 .checkerboard-presets { gap: 3px; margin: 4px 0 6px; }
 .path-planning-tabs button { padding: 5px 6px; }

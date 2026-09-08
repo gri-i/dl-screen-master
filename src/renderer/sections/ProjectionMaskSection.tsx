@@ -287,6 +287,8 @@ export function ProjectionMaskSection(): JSX.Element {
   const [logoName, setLogoName] = useState('');
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [exportStatus, setExportStatus] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const panStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
@@ -385,6 +387,43 @@ export function ProjectionMaskSection(): JSX.Element {
     await window.imageFiles.savePng(bytes, `${safeName}-${patternWidth}x${patternHeight}.png`);
   }
 
+  async function exportPdf(): Promise<void> {
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+    setExportStatus('Подготовка PDF…');
+    try {
+      if (patternWidth <= 0 || patternHeight <= 0 || settings.overlapX >= settings.displayWidth || settings.overlapY >= settings.displayHeight) {
+        throw new Error('Перекрытие должно быть меньше разрешения проектора.');
+      }
+      const escape = (value: string): string => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 3200 / Math.max(patternWidth, patternHeight));
+      drawPixelPattern(canvas, settings, Math.max(1, Math.round(patternWidth * scale)), Math.max(1, Math.round(patternHeight * scale)), logo);
+      const mask = canvas.toDataURL('image/png');
+      if (!mask.startsWith('data:image/png;base64,')) throw new Error('Не удалось создать маску для PDF.');
+      const projectors = Array.from({ length: settings.rows }, (_, row) =>
+        Array.from({ length: settings.columns }, (_, column) => `<tr><td>P${row * settings.columns + column + 1}</td><td>${row + 1}</td><td>${column + 1}</td><td>${settings.displayWidth} × ${settings.displayHeight}</td><td>${column * (settings.displayWidth - settings.overlapX)}</td><td>${row * (settings.displayHeight - settings.overlapY)}</td></tr>`).join('')
+      ).join('');
+      const html = `<!doctype html><html lang="ru"><head><meta charset="utf-8"><style>
+        @page{size:A4 landscape;margin:14mm}body{font-family:Arial,sans-serif;color:#17212b}h1{font-size:22px;overflow-wrap:anywhere}h2{font-size:18px}
+        .mask{width:100%;height:125mm;object-fit:contain}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #aab4bd;padding:6px;text-align:left}th{background:#e7f7fb}thead{display:table-header-group}tr{break-inside:avoid}.page{break-before:page}
+        </style></head><body><h1>${escape(settings.name)} · Проекционная маска</h1><img class="mask" src="${mask}" alt="Проекционная маска"/>
+        <table><tbody><tr><th>Общее разрешение с учётом перекрытий, px</th><td>${patternWidth} × ${patternHeight}</td></tr>
+        <tr><th>Разрешение каждого проектора, px</th><td>${settings.displayWidth} × ${settings.displayHeight}</td></tr>
+        <tr><th>Раскладка / количество проекторов</th><td>${settings.columns} × ${settings.rows} / ${settings.columns * settings.rows}</td></tr>
+        <tr><th>Перекрытие соседних проекторов X / Y, px</th><td>${settings.columns > 1 ? settings.overlapX : 0} / ${settings.rows > 1 ? settings.overlapY : 0}</td></tr></tbody></table>
+        <section class="page"><h2>Проекторы · ${escape(settings.name)}</h2><p>Нумерация слева направо, сверху вниз. X и Y — начало изображения проектора в общей маске, в пикселях от левого верхнего угла.</p>
+        <table><thead><tr><th>Проектор</th><th>Ряд</th><th>Колонка</th><th>Разрешение, px</th><th>X, px</th><th>Y, px</th></tr></thead><tbody>${projectors}</tbody></table></section></body></html>`;
+      const safeName = settings.name.trim().replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '-').replace(/\s+/g, '-').slice(0, 100) || 'projection-pattern';
+      const filePath = await window.exportFiles.savePdf(html, `${safeName}-${patternWidth}x${patternHeight}.pdf`);
+      setExportStatus(filePath ? `PDF экспортирован: ${filePath}` : 'Экспорт отменён');
+    } catch (error) {
+      setExportStatus(error instanceof Error ? error.message : 'Не удалось экспортировать PDF');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }
+
   return (
     <section className="projection-section pixel-pattern-section">
       <header>
@@ -396,8 +435,10 @@ export function ProjectionMaskSection(): JSX.Element {
           <span>{patternWidth} × {patternHeight} px</span>
           <button type="button" onClick={() => setSettings(DEFAULT_SETTINGS)}>Сбросить</button>
           <button className="primary-button" type="button" onClick={() => void exportPattern()}>Скачать PNG</button>
+          <button type="button" disabled={isExportingPdf} onClick={() => void exportPdf()}>Экспорт PDF</button>
         </div>
       </header>
+      {exportStatus && <p role="status">{exportStatus}</p>}
 
       <div className="pixel-pattern-layout">
         <aside className="pixel-pattern-controls">

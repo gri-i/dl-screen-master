@@ -4,6 +4,7 @@ import type {
   PowerCalculationResult,
   PowerGridConfig
 } from './types';
+import { usablePowerPerPortW } from './powerLimits';
 
 /**
  * Считает итоговые габариты, вес и потребление экрана,
@@ -52,16 +53,11 @@ function calculateCircuits(
   config: PowerGridConfig
 ): PowerCalculationResult['recommendedCircuits'] {
   const { voltage, phase, circuitBreakerAmps, safetyMarginPercent, powerFactor } = config;
+  // Для трёхфазного ввода считаем каждую силовую цепь/порт отдельно — 230 В фаза.
+  const portVoltage = phase === 'three' ? voltage / Math.sqrt(3) : voltage;
+  const wattsPerCircuit = usablePowerPerPortW(portVoltage, circuitBreakerAmps, safetyMarginPercent, powerFactor);
 
-  // Доступная мощность на одну цепь с учётом запаса
-  const usableAmps = circuitBreakerAmps * (1 - safetyMarginPercent / 100);
-
-  const wattsPerCircuit =
-    phase === 'three'
-      ? voltage * usableAmps * Math.sqrt(3) * powerFactor
-      : voltage * usableAmps * powerFactor;
-
-  const circuitsNeeded = Math.ceil(totalMaxPowerW / wattsPerCircuit);
+  const circuitsNeeded = wattsPerCircuit > 0 ? Math.ceil(totalMaxPowerW / wattsPerCircuit) : 0;
 
   return {
     phase,

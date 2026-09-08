@@ -123,6 +123,7 @@ export function PowerCalculator({
           <Row label="Габариты (мм)" value={`${result.totalWidthMm} × ${result.totalHeightMm}`} />
           <Row label="Общий вес (кг)" value={result.totalWeightKg.toFixed(1)} />
           <Row label="Пиковое потребление (Вт)" value={result.totalMaxPowerW} />
+          <Row label="Пиковое потребление (кВт)" value={(result.totalMaxPowerW / 1000).toFixed(2)} />
           <Row label="Среднее потребление (Вт)" value={result.totalAvgPowerW} />
           <Row
             label="Нужно цепей питания"

@@ -1,9 +1,11 @@
 import type { CabinetPreset, PowerPlan, Processor } from '@shared/types';
+import { usablePowerPerPortW } from '@shared/powerLimits';
 
 export interface ExportScreen {
   id: string;
   name: string;
   preset: CabinetPreset;
+  imageSource?: string;
   cols: number;
   rows: number;
   emptyCabinetKeys: string[];
@@ -93,7 +95,7 @@ function escapeXml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 }
 
-export function buildScreenSvg(screen: ExportScreen): string {
+export function buildScreenSvg(screen: ExportScreen, mode: 'signal' | 'power' = 'signal'): string {
   const cellWidth = screen.preset.widthMm;
   const cellHeight = screen.preset.heightMm;
   const width = screen.cols * cellWidth;
@@ -109,7 +111,8 @@ export function buildScreenSvg(screen: ExportScreen): string {
         : `<g><rect x="${x}" y="${y}" width="${cellWidth}" height="${cellHeight}" fill="#18232c" stroke="#67e8f9" stroke-width="2"/><text x="${x + cellWidth / 2}" y="${y + cellHeight / 2}" fill="#e5f7ff" font-size="${Math.min(cellWidth, cellHeight) * .12}" text-anchor="middle" dominant-baseline="middle">${col + 1}:${row + 1}</text></g>`;
     }).join('')
   ).join('');
-  const paths = screen.processor?.ports.map((port, index) => {
+  const routes = mode === 'power' ? screen.powerPlan?.circuits : screen.processor?.ports;
+  const paths = routes?.map((port, index) => {
     const centers = port.assignedCabinets.map((key) => {
       const [col, row] = key.split('-').map(Number);
       return { x: (col + .5) * cellWidth, y: (row + .5) * cellHeight };
@@ -130,14 +133,45 @@ export function buildScreenSvg(screen: ExportScreen): string {
     const radius = Math.min(cellWidth, cellHeight) * .09;
     return `${segments}<circle cx="${first.x}" cy="${first.y}" r="${radius}" fill="#16a34a" stroke="#fff" stroke-width="${strokeWidth * .5}"/><circle cx="${last.x}" cy="${last.y}" r="${radius}" fill="#dc2626" stroke="#fff" stroke-width="${strokeWidth * .5}"/>`;
   }).join('') ?? '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#0b1117"/><title>${escapeXml(screen.name)}</title>${cells}${paths}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#0b1117"/><title>${escapeXml(screen.name)}</title>${cells}${paths}<rect x="0" y="0" width="${width}" height="${height}" fill="none" stroke="#000" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
 export function buildReportHtml(projectName: string, screens: ExportScreen[]): string {
+  const table = (headers: string[], rows: unknown[][]): string => `<table><thead><tr>${headers.map((value) => `<th>${escapeXml(value)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((value) => `<td>${escapeXml(String(value ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const details = screens.map((screen) => {
+    const caption = escapeXml(screen.name);
+    const count = cabinetCount(screen);
+    const ports = screen.processor?.ports ?? [];
+    const plan = screen.powerPlan;
+    const limit = plan ? usablePowerPerPortW(plan.voltage, plan.circuitBreakerAmps, plan.safetyMarginPercent, plan.powerFactor) : 0;
+    const signalRows = ports.map((port) => {
+      const pixels = port.assignedCabinets.length * screen.preset.resolutionX * screen.preset.resolutionY;
+      return [port.controllerId ?? '', port.controllerName ?? screen.processor?.model ?? '', port.sourcePortName ?? port.portId, port.assignedCabinets.length, pixels, port.maxPixels, pixels > port.maxPixels || (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets) ? 'Перегрузка' : 'В норме', port.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
+    });
+    const powerRows = (plan?.circuits ?? []).map((circuit) => {
+      const watts = circuit.assignedCabinets.length * screen.preset.maxPowerW;
+      return [circuit.name, circuit.phase, circuit.assignedCabinets.length, watts.toFixed(2), limit.toFixed(2), (watts / Math.max(1, plan!.voltage * plan!.powerFactor)).toFixed(2), watts > limit ? 'Перегрузка' : 'В норме', circuit.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
+    });
+    const mask = screen.imageSource?.startsWith('data:image/png;base64,') ? `<img src="${escapeXml(screen.imageSource)}" alt="${caption}"/>` : buildScreenSvg({ ...screen, processor: undefined });
+    return `<section class="page"><h2>${caption} · Маска</h2><div class="mask">${mask}</div>${table(['Параметр', 'Значение'], [
+      ['Кабинет', `${screen.preset.brand} ${screen.preset.model}`],
+      ['Раскладка / установлено', `${screen.cols} × ${screen.rows} / ${count}`],
+      ['Разрешение экрана, px', `${screen.cols * screen.preset.resolutionX} × ${screen.rows * screen.preset.resolutionY}`],
+      ['Размер кабинета, мм / разрешение, px', `${screen.preset.widthMm} × ${screen.preset.heightMm} / ${screen.preset.resolutionX} × ${screen.preset.resolutionY}`],
+      ['Шаг пикселя, мм', screen.preset.pixelPitchMm],
+      ['Размер экрана, мм', `${screen.cols * screen.preset.widthMm} × ${screen.rows * screen.preset.heightMm}`],
+      ['Вес, кг', (count * screen.preset.weightKg).toFixed(2)],
+      ['Мощность макс. / средняя, Вт', `${(count * screen.preset.maxPowerW).toFixed(2)} / ${(count * screen.preset.avgPowerW).toFixed(2)}`],
+      ['Положение на холсте / поворот', `${screen.x}, ${screen.y} / ${screen.rotation}°`],
+      ['Пустые кабинеты (col-row, от 0)', screen.emptyCabinetKeys.join('; ') || 'Нет']
+    ])}</section>
+    <section class="page"><h2>${caption} · signal path</h2><div class="mask">${buildScreenSvg(screen, 'signal')}</div><p>Кабинеты: col-row, координаты от 0. Последовательность указана отдельно для каждого порта.</p>${signalRows.length ? table(['Sending card', 'Модель', 'Порт', 'Каб.', 'Пикселей', 'Лимит, px', 'Состояние', 'Порядок: кабинет'], signalRows) : '<p>Сигнальные пути не назначены.</p>'}</section>
+    <section class="page"><h2>${caption} · power path</h2><div class="mask">${buildScreenSvg(screen, 'power')}</div>${plan ? `<p>Напряжение: ${plan.voltage} В · автомат: ${plan.circuitBreakerAmps} А · запас: ${plan.safetyMarginPercent}% · cos φ: ${plan.powerFactor} · фаз: ${plan.phases}</p>` : ''}${powerRows.length ? table(['Цепь', 'Фаза', 'Каб.', 'Мощность, Вт', 'Лимит, Вт', 'Ток, А', 'Состояние', 'Порядок: кабинет'], powerRows) : '<p>Силовые пути не назначены.</p>'}</section>`;
+  }).join('');
   const totalCabinets = screens.reduce((sum, screen) => sum + cabinetCount(screen), 0);
   const rows = screens.map((screen) => {
     const count = cabinetCount(screen);
     return `<tr><td>${escapeXml(screen.name)}</td><td>${escapeXml(`${screen.preset.brand} ${screen.preset.model}`)}</td><td>${screen.cols} × ${screen.rows}</td><td>${count}</td><td>${screen.cols * screen.preset.widthMm} × ${screen.rows * screen.preset.heightMm}</td><td>${(count * screen.preset.weightKg).toFixed(2)}</td><td>${(count * screen.preset.maxPowerW).toFixed(0)}</td></tr>`;
   }).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4 landscape;margin:14mm}body{font-family:Arial,sans-serif;color:#17212b}h1{font-size:22px}p{color:#52606d}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #aab4bd;padding:6px;text-align:left}th{background:#e7f7fb}</style></head><body><h1>${escapeXml(projectName)}</h1><p>Экранов: ${screens.length} · кабинетов: ${totalCabinets} · отчёт создан ${new Date().toLocaleString('ru-RU')}</p><table><thead><tr><th>Экран</th><th>Кабинет</th><th>Раскладка</th><th>Количество</th><th>Размер, мм</th><th>Вес, кг</th><th>Макс., Вт</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4 landscape;margin:14mm}body{font-family:Arial,sans-serif;color:#17212b}h1{font-size:22px}p{color:#52606d}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #aab4bd;padding:6px;text-align:left}th{background:#e7f7fb}.page{break-before:page}h2{font-size:18px}.mask{height:135mm;display:flex;align-items:center;justify-content:center;margin:8px 0}.mask svg{width:100%;height:100%}.mask img{width:auto;height:auto;max-width:100%;max-height:100%;outline:1px solid #000;outline-offset:-1px}td{overflow-wrap:anywhere}thead{display:table-header-group}tr{break-inside:avoid}</style></head><body><h1>${escapeXml(projectName)}</h1><p>Экранов: ${screens.length} · кабинетов: ${totalCabinets} · отчёт создан ${new Date().toLocaleString('ru-RU')}</p><table><thead><tr><th>Экран</th><th>Кабинет</th><th>Раскладка</th><th>Количество</th><th>Размер, мм</th><th>Вес, кг</th><th>Макс., Вт</th></tr></thead><tbody>${rows}</tbody></table>${details}</body></html>`;
 }

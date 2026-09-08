@@ -163,6 +163,7 @@ ipcMain.handle('export:pdf', async (event, html: string, defaultName: string): P
   const reportWindow = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
   try {
     await reportWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    await reportWindow.webContents.executeJavaScript(`Promise.all(Array.from(document.images, image => image.decode()))`);
     const pdf = await reportWindow.webContents.printToPDF({
       printBackground: true,
       pageSize: 'A4',

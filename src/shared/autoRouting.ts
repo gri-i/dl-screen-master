@@ -1,4 +1,5 @@
 import type { PowerCircuit, PowerPhase, PowerPlan, Processor } from './types';
+import { usablePowerPerPortW } from './powerLimits';
 
 export type RoutingPattern = 'snake-rows' | 'snake-columns' | 'rows' | 'columns' | 'center';
 export type StartCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -84,9 +85,8 @@ export function generatePowerPlan(
   order: string[],
   cabinetMaxPowerW: number
 ): PowerPlan {
-  const usableAmps = source.circuitBreakerAmps * (1 - source.safetyMarginPercent / 100);
-  const cabinetAmps = cabinetMaxPowerW / Math.max(1, source.voltage * source.powerFactor);
-  const capacity = Math.max(1, Math.floor(usableAmps / Math.max(.001, cabinetAmps)));
+  const usablePowerW = usablePowerPerPortW(source.voltage, source.circuitBreakerAmps, source.safetyMarginPercent, source.powerFactor);
+  const capacity = Math.max(1, Math.floor(usablePowerW / Math.max(.001, cabinetMaxPowerW)));
   const circuitCount = Math.max(1, Math.ceil(order.length / capacity));
   const phases: PowerPhase[] = source.phases === 3 ? ['L1', 'L2', 'L3'] : ['L1'];
   const circuits: PowerCircuit[] = Array.from({ length: circuitCount }, (_, index) => ({

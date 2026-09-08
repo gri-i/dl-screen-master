@@ -17,8 +17,7 @@ import {
 import type { ScreenConfig } from './PowerCalculator';
 import { importNovaStarProject } from '../novastarImport';
 import { PowerPathPlanner } from './PowerPathPlanner';
-import { strToU8, zipSync } from 'fflate';
-import { buildCsvFiles, buildReportHtml, buildScreenSvg, type ExportScreen } from '../projectExport';
+import { buildReportHtml, type ExportScreen } from '../projectExport';
 import {
   generateCabinetOrder,
   generatePowerPlan,
@@ -343,6 +342,7 @@ export function TestPatternViewer({
   const [selectedScreenIds, setSelectedScreenIds] = useState<string[]>([]);
   const [isEditingScreen, setIsEditingScreen] = useState(false);
   const [workspaceZoom, setWorkspaceZoom] = useState(1);
+  const [workspaceOffset, setWorkspaceOffset] = useState({ x: 0, y: 0 });
   const [isPanningWorkspace, setIsPanningWorkspace] = useState(false);
   const [importStatus, setImportStatus] = useState('');
   const [activeDataPortId, setActiveDataPortId] = useState<string | null>(null);
@@ -358,7 +358,7 @@ export function TestPatternViewer({
   const [snapGuides, setSnapGuides] = useState<{ x?: number; y?: number }>({});
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const selectionStartRef = useRef<{ x: number; y: number; additive: boolean } | null>(null);
-  const pathDrawRef = useRef<{ screenId: string; cabinetKey: string } | null>(null);
+  const pathDrawRef = useRef<{ screenId: string; cabinetKey: string; button: 0 | 2; moved: boolean } | null>(null);
   const placedDragRef = useRef<{
     id: string; x: number; y: number; origins: Record<string, { x: number; y: number }>;
   } | null>(null);
@@ -367,7 +367,6 @@ export function TestPatternViewer({
   const [historyRevision, setHistoryRevision] = useState(0);
   const lastHandledAddScreenSignal = useRef(addScreenSignal);
   const lastHandledClearScreensSignal = useRef(clearScreensSignal);
-  const nextScreenNumber = useRef(1);
 
   const preset = presets.find((item) => item.id === presetId) ?? presets[0];
 
@@ -512,7 +511,6 @@ export function TestPatternViewer({
     setSelectedScreenIds([]);
     historyRef.current = { past: [], future: [] };
     setHistoryRevision((value) => value + 1);
-    nextScreenNumber.current = loaded.length + 1;
     resetVisualSettings();
   }, [projectLoadSignal]);
 
@@ -660,7 +658,7 @@ export function TestPatternViewer({
   function drawTestGrid(ctx: CanvasRenderingContext2D): void {
     if (!showTestGrid) return;
 
-    const lineWidth = Math.max(1, Math.min(widthPx, heightPx) / 900);
+    const lineWidth = Math.max(1, Math.min(widthPx, heightPx) / 900) + 1;
 
     ctx.save();
     ctx.lineWidth = lineWidth;
@@ -672,22 +670,26 @@ export function TestPatternViewer({
     ctx.lineTo(widthPx, 0);
     ctx.stroke();
 
-    const sideRadius = Math.min(preset.resolutionX, preset.resolutionY) * 0.98;
-    const sideXLeft = preset.resolutionX;
-    const sideXRight = widthPx - preset.resolutionX;
-    const topY = preset.resolutionY;
-    const bottomY = heightPx - preset.resolutionY;
+    const centerRadius = Math.max(0, (Math.min(widthPx, heightPx) - lineWidth) / 2);
+    const cabinetResolution = Math.max(1, Math.min(preset.resolutionX, preset.resolutionY));
+    const sideDiameterUnits = Math.min(2, Math.floor(Math.min(widthPx, heightPx) / cabinetResolution));
+    const sideDiameter = sideDiameterUnits * cabinetResolution;
+    const sideRadius = Math.max(0, sideDiameter / 2 - lineWidth / 2);
+    const sideXLeft = sideDiameter / 2;
+    const sideXRight = widthPx - sideDiameter / 2;
+    const topY = sideDiameter / 2;
+    const bottomY = heightPx - sideDiameter / 2;
     const circles = [
-      [sideXLeft, topY, '#ff0000'],
-      [sideXLeft, bottomY, '#0000ff'],
-      [sideXRight, topY, '#00ff00'],
-      [sideXRight, bottomY, '#ffff00'],
-      [widthPx / 2, heightPx / 2, '#ffffff']
+      [sideXLeft, topY, sideRadius, '#ff0000'],
+      [sideXLeft, bottomY, sideRadius, '#0000ff'],
+      [sideXRight, topY, sideRadius, '#00ff00'],
+      [sideXRight, bottomY, sideRadius, '#ffff00'],
+      [widthPx / 2, heightPx / 2, centerRadius, '#ffffff']
     ] as const;
-    for (const [x, y, color] of circles) {
+    for (const [x, y, radius, color] of circles) {
       ctx.strokeStyle = color;
       ctx.beginPath();
-      ctx.arc(x, y, x === widthPx / 2 ? heightPx * 0.49 : sideRadius, 0, Math.PI * 2);
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -806,9 +808,12 @@ export function TestPatternViewer({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const id = crypto.randomUUID();
-    const name = `Screen_${nextScreenNumber.current}`;
-    const selectedScreen = placedScreens.find((screen) => screen.id === selectedPlacedScreenId);
-    const label = !screenLabel.trim() || screenLabel === selectedScreen?.name ? name : screenLabel;
+    const nextIndex = placedScreens.reduce((max, screen) => {
+      const index = Number(screen.name.match(/(\d+)\s*$/)?.[1] ?? 0);
+      return Number.isSafeInteger(index) ? Math.max(max, index) : max;
+    }, placedScreens.length) + 1;
+    const name = `Screen_${nextIndex}`;
+    const label = name;
     const previousScreen = placedScreens.reduce<PlacedScreen | undefined>((rightmost, screen) =>
       !rightmost || screen.x + screen.width > rightmost.x + rightmost.width ? screen : rightmost, undefined);
     let phasedConfig = clonePatternConfig(config);
@@ -832,7 +837,6 @@ export function TestPatternViewer({
         }
       }
     }
-    nextScreenNumber.current += 1;
     const context = canvas.getContext('2d');
     if (context) drawScreen(context, true, label, phasedConfig);
     const imageSource = canvas.toDataURL('image/png');
@@ -879,7 +883,6 @@ export function TestPatternViewer({
     setPlacedScreens([]);
     setSelectedPlacedScreenId(null);
     setSelectedScreenIds([]);
-    nextScreenNumber.current = 1;
     resetVisualSettings();
   }, [clearScreensSignal]);
 
@@ -1052,7 +1055,7 @@ export function TestPatternViewer({
   function startWorkspacePan(event: React.PointerEvent<HTMLDivElement>): void {
     if (event.button !== 0 && event.button !== 1) return;
     const target = event.target as HTMLElement;
-    if (target.closest('.placed-screen-frame')) return;
+    if (target.closest('.placed-screen-frame') && event.button !== 1 && !event.altKey) return;
 
     placedDragRef.current = null;
     event.preventDefault();
@@ -1074,9 +1077,10 @@ export function TestPatternViewer({
     workspacePanRef.current = {
       x: event.clientX,
       y: event.clientY,
-      scrollLeft: event.currentTarget.scrollLeft,
-      scrollTop: event.currentTarget.scrollTop
+      scrollLeft: workspaceOffset.x,
+      scrollTop: workspaceOffset.y
     };
+    event.stopPropagation();
     setIsPanningWorkspace(true);
   }
 
@@ -1098,8 +1102,10 @@ export function TestPatternViewer({
     }
     const panStart = workspacePanRef.current;
     if (!panStart) return;
-    event.currentTarget.scrollLeft = panStart.scrollLeft - (event.clientX - panStart.x);
-    event.currentTarget.scrollTop = panStart.scrollTop - (event.clientY - panStart.y);
+    setWorkspaceOffset({
+      x: panStart.scrollLeft + event.clientX - panStart.x,
+      y: panStart.scrollTop + event.clientY - panStart.y
+    });
   }
 
   function stopWorkspacePan(event: React.PointerEvent<HTMLDivElement>): void {
@@ -1131,22 +1137,24 @@ export function TestPatternViewer({
     const pane = canvasPaneRef.current;
     if (!pane) return;
 
-    const bounds = pane.getBoundingClientRect();
+    const bounds = canvasStageRef.current?.getBoundingClientRect();
+    if (!bounds) return;
     const pointerX = event.clientX - bounds.left;
     const pointerY = event.clientY - bounds.top;
-    const contentX = (pane.scrollLeft + pointerX) / workspaceZoom;
-    const contentY = (pane.scrollTop + pointerY) / workspaceZoom;
+    const contentX = pointerX / workspaceZoom;
+    const contentY = pointerY / workspaceZoom;
     const nextZoom = clampZoom(workspaceZoom * Math.exp(-event.deltaY * 0.0015));
     if (nextZoom === workspaceZoom) return;
 
     setWorkspaceZoom(nextZoom);
-    window.requestAnimationFrame(() => {
-      pane.scrollLeft = contentX * nextZoom - pointerX;
-      pane.scrollTop = contentY * nextZoom - pointerY;
+    setWorkspaceOffset({
+      x: workspaceOffset.x + contentX * (workspaceZoom - nextZoom),
+      y: workspaceOffset.y + contentY * (workspaceZoom - nextZoom)
     });
   }
 
   function fitScreensInWorkspace(screens = placedScreens): void {
+    setWorkspaceOffset({ x: 0, y: 0 });
     const pane = canvasPaneRef.current;
     if (!pane || screens.length === 0) {
       setWorkspaceZoom(1);
@@ -1486,23 +1494,36 @@ export function TestPatternViewer({
   }
 
   function drawPathPointerDown(event: React.PointerEvent<SVGRectElement>, screenId: string, cabinetKey: string): void {
-    if (event.button !== 2) return;
+    if (event.button !== 0 && event.button !== 2) return;
     event.preventDefault();
     event.stopPropagation();
-    pathDrawRef.current = { screenId, cabinetKey };
-    if (pathPanelMode === 'data') editDataPathCabinet(screenId, cabinetKey, false);
-    else editPowerPathCabinet(screenId, cabinetKey, false);
+    pathDrawRef.current = { screenId, cabinetKey, button: event.button, moved: false };
+    if (event.button === 2) {
+      pathDrawRef.current.moved = true;
+      if (pathPanelMode === 'data') editDataPathCabinet(screenId, cabinetKey, false);
+      else editPowerPathCabinet(screenId, cabinetKey, false);
+    }
   }
 
   function drawPathPointerEnter(event: React.PointerEvent<SVGRectElement>, screenId: string, cabinetKey: string): void {
-    if (event.buttons !== 2 || pathDrawRef.current?.screenId !== screenId || pathDrawRef.current.cabinetKey === cabinetKey) return;
+    const draw = pathDrawRef.current;
+    if (!draw || event.buttons !== draw.button || draw.screenId !== screenId || draw.cabinetKey === cabinetKey) return;
     event.preventDefault();
-    pathDrawRef.current = { screenId, cabinetKey };
+    if (draw.button === 0 && !draw.moved) {
+      if (pathPanelMode === 'data') editDataPathCabinet(screenId, draw.cabinetKey, false);
+      else editPowerPathCabinet(screenId, draw.cabinetKey, false);
+    }
+    pathDrawRef.current = { ...draw, cabinetKey, moved: true };
     if (pathPanelMode === 'data') editDataPathCabinet(screenId, cabinetKey, false);
     else editPowerPathCabinet(screenId, cabinetKey, false);
   }
 
-  function stopPathPointerDraw(): void {
+  function finishPathPointerDraw(): void {
+    const draw = pathDrawRef.current;
+    if (draw?.button === 0 && !draw.moved) {
+      if (pathPanelMode === 'data') editDataPathCabinet(draw.screenId, draw.cabinetKey);
+      else editPowerPathCabinet(draw.screenId, draw.cabinetKey);
+    }
     pathDrawRef.current = null;
   }
 
@@ -1557,7 +1578,7 @@ export function TestPatternViewer({
       const powerPreset = preset;
       if (!powerPreset) throw new Error('Выберите кабинет из базы перед импортом');
       const baseY = placedScreens.reduce((bottom, screen) => Math.max(bottom, screen.y + screen.height), 0) + 80;
-      let nextY = baseY;
+      let nextX = 32;
       const screens = imported.screens.map((screen) => {
         const screenConfig: ScreenConfig = { ...screen.config, presetId: powerPreset.id };
         const width = screenConfig.cols * powerPreset.widthMm * WORKSPACE_PX_PER_MM;
@@ -1575,12 +1596,12 @@ export function TestPatternViewer({
           visualSettings,
           width,
           height,
-          x: 32,
-          y: nextY,
+          x: nextX,
+          y: baseY,
           rotation: 0,
           processor: cloneProcessor(screen.processor)
         };
-        nextY += height + 80;
+        nextX += width + 80;
         return placed;
       });
       const allScreens = [...placedScreens, ...screens];
@@ -1588,7 +1609,6 @@ export function TestPatternViewer({
       setSelectedPlacedScreenId(null);
       setSelectedScreenIds([]);
       window.requestAnimationFrame(() => fitScreensInWorkspace(allScreens));
-      nextScreenNumber.current += screens.length;
       setImportStatus(`Импортировано экранов: ${screens.length} · питание по базе: ${powerPreset.brand} ${powerPreset.model} (${powerPreset.maxPowerW} Вт/каб.)`);
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : 'Не удалось импортировать файл NovaStar');
@@ -1705,7 +1725,7 @@ export function TestPatternViewer({
           setImportStatus('Не удалось закодировать PNG: изображение слишком большое');
           return;
         }
-        const defaultName = `led-mask-${widthPx}x${heightPx}${includeDataPath ? '-data-path' : ''}.png`;
+        const defaultName = `${safeExportName(selectedDataScreen?.name ?? screenLabel)}-${widthPx}x${heightPx}${includeDataPath ? '-signal-path' : '-mask'}.png`;
         void blob.arrayBuffer()
           .then((buffer) => window.imageFiles.savePng(new Uint8Array(buffer), defaultName))
           .then((filePath) => setImportStatus(filePath ? `Экспортировано: ${filePath}` : 'Экспорт отменён'))
@@ -1719,12 +1739,13 @@ export function TestPatternViewer({
   }
 
   function exportScreens(): ExportScreen[] {
-    return placedScreens.flatMap((screen) => {
+    return placedScreens.filter((screen) => selectedScreenIds.length === 0 || selectedScreenIds.includes(screen.id)).flatMap((screen) => {
       const screenPreset = presets.find((item) => item.id === screen.screenConfig.presetId);
       return screenPreset ? [{
         id: screen.id,
         name: screen.name,
         preset: screenPreset,
+        imageSource: screen.imageSource,
         cols: screen.screenConfig.cols,
         rows: screen.screenConfig.rows,
         emptyCabinetKeys: [...screen.screenConfig.emptyCabinetKeys],
@@ -1739,113 +1760,6 @@ export function TestPatternViewer({
     });
   }
 
-  function loadExportImage(source: string): Promise<HTMLImageElement> {
-    return new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error('Не удалось прочитать изображение экрана'));
-      image.src = source;
-    });
-  }
-
-  function canvasPngBytes(canvas: HTMLCanvasElement): Promise<Uint8Array> {
-    return new Promise((resolve, reject) => canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error('Не удалось создать PNG'));
-        return;
-      }
-      void blob.arrayBuffer().then((buffer) => resolve(new Uint8Array(buffer)), reject);
-    }, 'image/png'));
-  }
-
-  async function buildScreenExportCanvas(screen: PlacedScreen, includeDataPath: boolean): Promise<HTMLCanvasElement> {
-    const image = await loadExportImage(screen.imageSource);
-    const canvas = document.createElement('canvas');
-    canvas.width = image.naturalWidth;
-    canvas.height = image.naturalHeight;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Не удалось создать PNG экрана');
-    context.drawImage(image, 0, 0);
-    if (includeDataPath) {
-      const screenPreset = presets.find((item) => item.id === screen.screenConfig.presetId);
-      if (screenPreset) drawDataPathForExport(context, screen, screenPreset);
-    }
-    return canvas;
-  }
-
-  async function buildCombinedMapPng(includeDataPath = false): Promise<Uint8Array> {
-    const minX = Math.min(...placedScreens.map((screen) => screen.x));
-    const minY = Math.min(...placedScreens.map((screen) => screen.y));
-    const maxX = Math.max(...placedScreens.map((screen) => screen.x + screen.width));
-    const maxY = Math.max(...placedScreens.map((screen) => screen.y + screen.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.ceil(maxX - minX));
-    canvas.height = Math.max(1, Math.ceil(maxY - minY));
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Не удалось создать объединённую карту');
-    for (const screen of placedScreens) {
-      const image = await buildScreenExportCanvas(screen, includeDataPath);
-      const centerX = screen.x - minX + screen.width / 2;
-      const centerY = screen.y - minY + screen.height / 2;
-      const rotated = screen.rotation === 90 || screen.rotation === 270;
-      context.save();
-      context.translate(centerX, centerY);
-      context.rotate(screen.rotation * Math.PI / 180);
-      context.drawImage(
-        image,
-        -(rotated ? screen.height : screen.width) / 2,
-        -(rotated ? screen.width : screen.height) / 2,
-        rotated ? screen.height : screen.width,
-        rotated ? screen.width : screen.height
-      );
-      context.restore();
-    }
-    return canvasPngBytes(canvas);
-  }
-
-  async function exportProjectPackage(): Promise<void> {
-    if (placedScreens.length === 0) {
-      setImportStatus('Добавьте хотя бы один экран для экспорта');
-      return;
-    }
-    setImportStatus('Подготовка пакета проекта…');
-    try {
-      const files: Record<string, Uint8Array> = {};
-      const data = exportScreens();
-      Object.entries(buildCsvFiles(data)).forEach(([name, content]) => {
-        files[`tables/${name}`] = strToU8(content);
-      });
-      data.forEach((screen, index) => {
-        files[`layouts/${String(index + 1).padStart(2, '0')}-${safeExportName(screen.name)}.svg`] =
-          strToU8(buildScreenSvg(screen));
-      });
-      for (let index = 0; index < placedScreens.length; index += 1) {
-        const screen = placedScreens[index];
-        const canvas = await buildScreenExportCanvas(screen, false);
-        files[`png/${String(index + 1).padStart(2, '0')}-${safeExportName(screen.name)}.png`] =
-          await canvasPngBytes(canvas);
-        if (screen.processor) {
-          const pathCanvas = await buildScreenExportCanvas(screen, true);
-          files[`png/data-path/${String(index + 1).padStart(2, '0')}-${safeExportName(screen.name)}-data-path.png`] =
-            await canvasPngBytes(pathCanvas);
-        }
-      }
-      files['png/combined-mask-map.png'] = await buildCombinedMapPng(false);
-      if (placedScreens.some((screen) => screen.processor)) {
-        files['png/data-path/combined-data-path-map.png'] = await buildCombinedMapPng(true);
-      }
-      files['report.html'] = strToU8(buildReportHtml(projectName, data));
-      const archive = zipSync(files, { level: 6 });
-      const filePath = await window.exportFiles.save(
-        archive,
-        `${safeExportName(projectName)}-export.zip`,
-        'zip'
-      );
-      setImportStatus(filePath ? `Пакет экспортирован: ${filePath}` : 'Экспорт отменён');
-    } catch (error) {
-      setImportStatus(error instanceof Error ? error.message : 'Не удалось экспортировать проект');
-    }
-  }
 
   async function exportProjectPdf(): Promise<void> {
     if (placedScreens.length === 0) {
@@ -1983,7 +1897,15 @@ export function TestPatternViewer({
             <legend>Подписи и логотип</legend>
             <label>
               Подпись экрана:{' '}
-              <input value={screenLabel} onChange={(e) => setScreenLabel(e.target.value)} />
+              <input value={screenLabel} onChange={(e) => {
+                const name = e.target.value;
+                setScreenLabel(name);
+                if (selectedPlacedScreenId) {
+                  setPlacedScreens((current) => current.map((screen) => screen.id === selectedPlacedScreenId
+                    ? { ...screen, name, visualSettings: { ...screen.visualSettings, screenLabel: name } }
+                    : screen));
+                }
+              }} />
             </label>
             <br />
             <label>
@@ -2118,17 +2040,9 @@ export function TestPatternViewer({
           </button>
           <fieldset className="project-export-panel">
             <legend>Экспорт проекта</legend>
-            <button type="button" disabled={placedScreens.length === 0} onClick={() => void exportProjectPackage()}>
-              ZIP: CSV + PNG + SVG
-            </button>
             <button type="button" disabled={placedScreens.length === 0} onClick={() => void exportProjectPdf()}>
-              PDF-отчёт
+              Экспорт проекта PDF
             </button>
-            <p className="field-hint">
-              CSV совместимы с Excel и Google Sheets. ZIP содержит pick-лист,
-              питание, data-path, PNG каждого экрана и объединённые карты
-              масок и расключения.
-            </p>
           </fieldset>
           <p className="field-hint pixel-mask-control">
             Выбранный паттерн сохраняется в установленных кабинетах; пустые ячейки
@@ -2398,7 +2312,12 @@ export function TestPatternViewer({
         <div
           ref={canvasPaneRef}
           className={`canvas-pane${isPanningWorkspace ? ' is-panning' : ''}`}
-          onPointerDown={startWorkspacePan}
+          onPointerDownCapture={(event) => {
+            if (event.button === 1 || (event.button === 0 && event.altKey)) startWorkspacePan(event);
+          }}
+          onPointerDown={(event) => {
+            if (event.button === 0 && !event.altKey) startWorkspacePan(event);
+          }}
           onPointerMove={moveWorkspace}
           onPointerUp={stopWorkspacePan}
           onPointerCancel={stopWorkspacePan}
@@ -2417,13 +2336,13 @@ export function TestPatternViewer({
               style={{
                 width: stageSize.width,
                 height: stageSize.height,
-                transform: `scale(${workspaceZoom})`
+                transform: `translate(${workspaceOffset.x}px, ${workspaceOffset.y}px) scale(${workspaceZoom})`
               }}
             >
               {placedScreens.map((screen) => (
                 <div
                   key={screen.id}
-                  className={`placed-screen-frame${selectedScreenIds.includes(screen.id) ? ' is-selected' : ''}${isEditingScreen ? ' is-editing' : ''}`}
+                  className={`placed-screen-frame${selectedScreenIds.includes(screen.id) ? ' is-selected' : ''}${selectedPlacedScreenId === screen.id ? ' is-active-screen' : ''}${isEditingScreen ? ' is-editing' : ''}`}
                   role="button"
                   tabIndex={0}
                   aria-label={`Выбрать ${screen.name}`}
@@ -2474,8 +2393,8 @@ export function TestPatternViewer({
                     return (
                       <svg
                         className={`data-path-overlay${isEditingDataPath && selectedPlacedScreenId === screen.id ? ' is-editing' : ''}`}
-                        onPointerUp={stopPathPointerDraw}
-                        onPointerCancel={stopPathPointerDraw}
+                        onPointerUp={finishPathPointerDraw}
+                        onPointerCancel={finishPathPointerDraw}
                         viewBox={`0 0 ${cols} ${rows}`}
                         style={{
                           left: '50%',
@@ -2525,7 +2444,7 @@ export function TestPatternViewer({
                           Array.from({ length: cols }, (_, col) => {
                             const key = `${col}-${row}`;
                             if (screen.screenConfig.emptyCabinetKeys.includes(key)) return null;
-                            return <rect key={`hit-${key}`} className="data-path-hit" x={col} y={row} width="1" height="1" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); if (event.button === 0) editDataPathCabinet(screen.id, key); else drawPathPointerDown(event, screen.id, key); }} onPointerEnter={(event) => drawPathPointerEnter(event, screen.id, key)} />;
+                            return <rect key={`hit-${key}`} className="data-path-hit" x={col} y={row} width="1" height="1" onPointerDown={(event) => drawPathPointerDown(event, screen.id, key)} onPointerEnter={(event) => drawPathPointerEnter(event, screen.id, key)} />;
                           })
                         )}
                       </svg>
@@ -2546,8 +2465,8 @@ export function TestPatternViewer({
                     return (
                       <svg
                         className={`data-path-overlay power-path-overlay${isEditingPowerPath ? ' is-editing' : ''}`}
-                        onPointerUp={stopPathPointerDraw}
-                        onPointerCancel={stopPathPointerDraw}
+                        onPointerUp={finishPathPointerDraw}
+                        onPointerCancel={finishPathPointerDraw}
                         viewBox={`0 0 ${cols} ${rows}`}
                         style={{ left: '50%', top: '50%', width: overlayWidth, height: overlayHeight, transform: `translate(-50%, -50%) rotate(${screen.rotation}deg)` }}
                       >
@@ -2588,7 +2507,7 @@ export function TestPatternViewer({
                         {isEditingPowerPath && Array.from({ length: rows }, (_, row) => Array.from({ length: cols }, (_, col) => {
                           const key = `${col}-${row}`;
                           if (screen.screenConfig.emptyCabinetKeys.includes(key)) return null;
-                          return <rect key={`power-hit-${key}`} className="data-path-hit" x={col} y={row} width="1" height="1" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); if (event.button === 0) editPowerPathCabinet(screen.id, key); else drawPathPointerDown(event, screen.id, key); }} onPointerEnter={(event) => drawPathPointerEnter(event, screen.id, key)} />;
+                          return <rect key={`power-hit-${key}`} className="data-path-hit" x={col} y={row} width="1" height="1" onPointerDown={(event) => drawPathPointerDown(event, screen.id, key)} onPointerEnter={(event) => drawPathPointerEnter(event, screen.id, key)} />;
                         }))}
                       </svg>
                     );

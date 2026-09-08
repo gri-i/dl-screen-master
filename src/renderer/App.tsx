@@ -118,6 +118,9 @@ export function App(): JSX.Element {
   }
 
   function importSessionPresets(imported: CabinetPreset[]): void {
+    // Проверяем синхронно: исключение из updater-функции React иначе
+    // приводит к падению всего интерфейса, а не к сообщению об импорте.
+    mergeUniquePresets([], imported, { skipDuplicates: true });
     setSessionPresets((current) => mergeUniquePresets(current, imported, { skipDuplicates: true }));
   }
 
