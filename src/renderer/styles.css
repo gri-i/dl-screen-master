@@ -279,9 +279,16 @@ button:hover { border-color: var(--accent); color: #fff; }
 .pattern-preset-select select { margin-top: 0; }
 .pattern-preset-preview { display: flex; height: 18px; margin-bottom: 9px; overflow: hidden; border: 1px solid var(--line); border-radius: 4px; }
 .pattern-preset-preview i { flex: 1; min-width: 0; }
-.path-planning-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
-.path-planning-tabs button { padding: 7px 8px; border-color: transparent; background: transparent; }
-.path-planning-tabs button.is-active { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
+.path-planning-tabs, .pattern-mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
+.path-planning-tabs button, .pattern-mode-tabs button { padding: 7px 8px; border-color: transparent; background: transparent; }
+.path-planning-tabs button.is-active, .pattern-mode-tabs button.is-active { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
+.pattern-mode-tabs { margin-bottom: 8px; }
+.metric-origin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; width: 108px; margin-top: 6px; }
+.metric-origin-grid button {
+  display: grid; place-items: center; width: 32px; height: 28px; padding: 0;
+  border-radius: 5px; background: var(--panel-2); color: var(--muted); font-size: 13px;
+}
+.metric-origin-grid button.is-active { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
 .auto-routing-panel { display: grid; gap: 8px; }
 .auto-routing-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .auto-routing-settings label { min-width: 0; }
@@ -537,7 +544,7 @@ button { padding: 6px 8px; border-radius: 5px; font-size: 11px; }
 .canvas-pane { padding: 18px; overflow: hidden; }
 .data-path-panel, .auto-routing-panel, .power-path-panel { gap: 6px; }
 .checkerboard-presets { gap: 3px; margin: 4px 0 6px; }
-.path-planning-tabs button { padding: 5px 6px; }
+.path-planning-tabs button, .pattern-mode-tabs button { padding: 5px 6px; }
 
 .calculator-section, .projection-section { padding: 14px; }
 .calculator-section > header, .projection-section > header { margin-bottom: 10px; }
