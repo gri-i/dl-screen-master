@@ -17,12 +17,14 @@ contextBridge.exposeInMainWorld('presetFiles', {
 
 contextBridge.exposeInMainWorld('imageFiles', {
   savePng: (bytes: Uint8Array, defaultName: string): Promise<string | null> =>
-    ipcRenderer.invoke('image:save-png', bytes, defaultName)
+    ipcRenderer.invoke('image:save-png', bytes, defaultName),
+  saveMany: (files: { name: string; bytes: Uint8Array }[]): Promise<string | null> =>
+    ipcRenderer.invoke('image:save-many', files)
 });
 
 contextBridge.exposeInMainWorld('exportFiles', {
   save: (bytes: Uint8Array, defaultName: string, extension: string): Promise<string | null> =>
     ipcRenderer.invoke('export:save', bytes, defaultName, extension),
-  savePdf: (html: string, defaultName: string): Promise<string | null> =>
-    ipcRenderer.invoke('export:pdf', html, defaultName)
+  savePdf: (html: string, defaultName: string, masks?: { name: string; bytes: Uint8Array }[]): Promise<string | null> =>
+    ipcRenderer.invoke('export:pdf', html, defaultName, masks)
 });

@@ -142,6 +142,18 @@ ipcMain.handle('image:save-png', async (_event, bytes: Uint8Array, defaultName: 
   return result.filePath;
 });
 
+ipcMain.handle('image:save-many', async (_event, files: { name: string; bytes: Uint8Array }[]): Promise<string | null> => {
+  if (files.length === 0) return null;
+  const result = await dialog.showOpenDialog({
+    title: 'Папка для экспорта масок PNG',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  const dir = result.filePaths[0];
+  await Promise.all(files.map((file) => writeFile(path.join(dir, file.name), Buffer.from(file.bytes))));
+  return dir;
+});
+
 ipcMain.handle('export:save', async (_event, bytes: Uint8Array, defaultName: string, extension: string): Promise<string | null> => {
   const result = await dialog.showSaveDialog({
     title: 'Экспорт проекта',
@@ -153,7 +165,12 @@ ipcMain.handle('export:save', async (_event, bytes: Uint8Array, defaultName: str
   return result.filePath;
 });
 
-ipcMain.handle('export:pdf', async (event, html: string, defaultName: string): Promise<string | null> => {
+ipcMain.handle('export:pdf', async (
+  event,
+  html: string,
+  defaultName: string,
+  masks?: { name: string; bytes: Uint8Array }[]
+): Promise<string | null> => {
   const result = await dialog.showSaveDialog({
     title: 'Экспорт PDF-отчёта',
     defaultPath: defaultName,
@@ -170,6 +187,10 @@ ipcMain.handle('export:pdf', async (event, html: string, defaultName: string): P
       landscape: true
     });
     await writeFile(result.filePath, pdf);
+    if (masks && masks.length > 0) {
+      const dir = path.dirname(result.filePath);
+      await Promise.all(masks.map((file) => writeFile(path.join(dir, file.name), Buffer.from(file.bytes))));
+    }
     return result.filePath;
   } finally {
     reportWindow.destroy();

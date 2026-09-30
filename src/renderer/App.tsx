@@ -4,12 +4,24 @@ import { TestPatternViewer, type ScreenHeaderSummary } from './components/TestPa
 import { SettingsApp } from './SettingsApp';
 import { ProjectionMaskSection } from './sections/ProjectionMaskSection';
 import { BandwidthCalculator } from './components/BandwidthCalculator';
-import type { CabinetPreset, PowerGridConfig, Project, ScreenInstance } from '@shared/types';
+import type { CabinetPreset, PowerGridConfig, Project, ScreenInstance, UiSkin } from '@shared/types';
 import { mergeUniquePresets } from '@shared/presetValidation';
 import './styles.css';
 
 const CUSTOM_PRESETS_KEY = 'wall-config-custom-presets';
 const GRID_CONFIG_KEY = 'dl-screen-master-grid-config';
+const UI_SKIN_KEY = 'dl-screen-master-ui-skin';
+const DEFAULT_UI_SKIN: UiSkin = 'ocean';
+const UI_SKINS: UiSkin[] = ['vscode', 'corporate', 'midnight', 'carbon', 'graphite', 'ocean', 'forest', 'plum'];
+
+function readUiSkin(): UiSkin {
+  try {
+    const stored = window.localStorage.getItem(UI_SKIN_KEY);
+    return stored && (UI_SKINS as string[]).includes(stored) ? (stored as UiSkin) : DEFAULT_UI_SKIN;
+  } catch {
+    return DEFAULT_UI_SKIN;
+  }
+}
 const DEFAULT_GRID_CONFIG: PowerGridConfig = {
   voltage: 230,
   phase: 'single',
@@ -49,6 +61,7 @@ export function App(): JSX.Element {
   const [projectPath, setProjectPath] = useState<string | undefined>();
   const [projectCreatedAt, setProjectCreatedAt] = useState(() => new Date().toISOString());
   const [projectStatus, setProjectStatus] = useState('');
+  const [uiSkin, setUiSkin] = useState<UiSkin>(readUiSkin);
   const [gridConfig, setGridConfig] = useState<PowerGridConfig>(() => {
     try {
       const stored = window.localStorage.getItem(GRID_CONFIG_KEY);
@@ -148,6 +161,11 @@ export function App(): JSX.Element {
   useEffect(() => {
     window.localStorage.setItem(GRID_CONFIG_KEY, JSON.stringify(gridConfig));
   }, [gridConfig]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-dl-skin', uiSkin);
+    window.localStorage.setItem(UI_SKIN_KEY, uiSkin);
+  }, [uiSkin]);
 
   return (
     <>
@@ -282,6 +300,8 @@ export function App(): JSX.Element {
         presets={customPresets}
         gridConfig={gridConfig}
         onGridConfigChange={setGridConfig}
+        uiSkin={uiSkin}
+        onUiSkinChange={setUiSkin}
       />
     )}
     </>

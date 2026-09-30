@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import type { CabinetPreset, PowerGridConfig } from '@shared/types';
+import type { CabinetPreset, PowerGridConfig, UiSkin } from '@shared/types';
 import { mergeUniquePresets, validatePreset } from '@shared/presetValidation';
 import './styles.css';
 
@@ -9,15 +9,28 @@ const INITIAL_FORM = {
   receiverCardName: ''
 };
 
+const UI_SKIN_OPTIONS: { id: UiSkin; label: string; accent: string; bg: string }[] = [
+  { id: 'vscode', label: 'VS Code', accent: '#007acc', bg: '#1e1e1e' },
+  { id: 'corporate', label: 'Корпоративный', accent: '#2e5a8f', bg: '#10151c' },
+  { id: 'midnight', label: 'Полночь', accent: '#5b8cff', bg: '#0c0e13' },
+  { id: 'carbon', label: 'Карбон', accent: '#7aa2ff', bg: '#0a0a0c' },
+  { id: 'graphite', label: 'Графит', accent: '#6ea8fe', bg: '#15171b' },
+  { id: 'ocean', label: 'Океан', accent: '#38bdf8', bg: '#07131a' },
+  { id: 'forest', label: 'Лес', accent: '#4ade80', bg: '#0a130e' },
+  { id: 'plum', label: 'Слива', accent: '#c77dff', bg: '#110b16' }
+];
+
 interface SettingsAppProps {
   onBack?: () => void;
   onPresetsChange?: (presets: CabinetPreset[]) => void;
   presets: CabinetPreset[];
   gridConfig: PowerGridConfig;
   onGridConfigChange: (config: PowerGridConfig) => void;
+  uiSkin: UiSkin;
+  onUiSkinChange: (skin: UiSkin) => void;
 }
 
-export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, gridConfig, onGridConfigChange }: SettingsAppProps): JSX.Element {
+export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, gridConfig, onGridConfigChange, uiSkin, onUiSkinChange }: SettingsAppProps): JSX.Element {
   const [presets, setPresets] = useState<CabinetPreset[]>(initialPresets);
   const [form, setForm] = useState(INITIAL_FORM);
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
@@ -125,6 +138,24 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
         <div><div className="brand">DL_SCREEN MASTER</div><p>Настройки приложения</p></div>
         {onBack && <button type="button" onClick={onBack}>Вернуться к редактору</button>}
       </header>
+      <section className="settings-section">
+        <h1>Оформление</h1>
+        <p className="field-hint">Цветовая тема интерфейса (DreamLaser Design System). Применяется сразу и сохраняется между запусками.</p>
+        <div className="skin-picker">
+          {UI_SKIN_OPTIONS.map((skin) => (
+            <button
+              key={skin.id}
+              type="button"
+              className={skin.id === uiSkin ? 'is-active' : ''}
+              onClick={() => onUiSkinChange(skin.id)}
+              style={{ '--skin-bg': skin.bg, '--skin-accent': skin.accent } as React.CSSProperties}
+            >
+              <i />
+              <span>{skin.label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
       <section className="settings-section">
         <h1>Электросеть</h1>
         <div className="grid-settings-form">

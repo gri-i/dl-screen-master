@@ -1702,7 +1702,113 @@ export function TestPatternViewer({
     });
   }
 
-  function exportMask(includeDataPath = false): void {
+  function dataUrlToBytes(dataUrl: string): Uint8Array {
+    const binary = atob(dataUrl.slice(dataUrl.indexOf(',') + 1));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+
+  function loadImageElement(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Не удалось загрузить маску экрана'));
+      image.src = src;
+    });
+  }
+
+  function canvasToPngBytes(canvas: HTMLCanvasElement): Promise<Uint8Array> {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('Не удалось закодировать PNG: изображение слишком большое'));
+          return;
+        }
+        void blob.arrayBuffer().then((buffer) => resolve(new Uint8Array(buffer)));
+      }, 'image/png');
+    });
+  }
+
+  // Composites several placed screens into one PNG, positioned and rotated the
+  // same way they sit on the canvas (screen.x/y/width/height are already in
+  // physical-proportional workspace units — see WORKSPACE_PX_PER_MM), scaled
+  // up so the highest-density screen in the set renders at its native resolution.
+  async function buildCombinedMaskCanvas(screens: PlacedScreen[]): Promise<HTMLCanvasElement | null> {
+    if (screens.length < 2) return null;
+    const images = await Promise.all(screens.map((screen) => loadImageElement(screen.imageSource)));
+    const minX = Math.min(...screens.map((screen) => screen.x));
+    const minY = Math.min(...screens.map((screen) => screen.y));
+    const maxX = Math.max(...screens.map((screen) => screen.x + screen.width));
+    const maxY = Math.max(...screens.map((screen) => screen.y + screen.height));
+
+    let outputScale = 0;
+    screens.forEach((screen, index) => {
+      const unrotatedWidth = screen.rotation === 90 || screen.rotation === 270 ? screen.height : screen.width;
+      const density = images[index].naturalWidth / unrotatedWidth;
+      if (Number.isFinite(density) && density > outputScale) outputScale = density;
+    });
+    if (!Number.isFinite(outputScale) || outputScale <= 0) outputScale = 1;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round((maxX - minX) * outputScale));
+    canvas.height = Math.max(1, Math.round((maxY - minY) * outputScale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.imageSmoothingEnabled = false;
+
+    screens.forEach((screen, index) => {
+      const unrotatedWidth = screen.rotation === 90 || screen.rotation === 270 ? screen.height : screen.width;
+      const unrotatedHeight = screen.rotation === 90 || screen.rotation === 270 ? screen.width : screen.height;
+      const drawWidth = unrotatedWidth * outputScale;
+      const drawHeight = unrotatedHeight * outputScale;
+      ctx.save();
+      ctx.translate((screen.x + screen.width / 2 - minX) * outputScale, (screen.y + screen.height / 2 - minY) * outputScale);
+      ctx.rotate((screen.rotation * Math.PI) / 180);
+      ctx.drawImage(images[index], -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+      ctx.restore();
+    });
+    return canvas;
+  }
+
+  // Combined mask (only when there's more than one screen) plus one mask per
+  // screen individually — used by both the PNG export button and the PDF export.
+  async function buildScreenMaskFiles(screens: PlacedScreen[]): Promise<{ name: string; bytes: Uint8Array }[]> {
+    const withMasks = screens.filter((screen) => screen.imageSource?.startsWith('data:image/png;base64,'));
+    const files: { name: string; bytes: Uint8Array }[] = [];
+    if (withMasks.length > 1) {
+      const combined = await buildCombinedMaskCanvas(withMasks);
+      if (combined) {
+        files.push({
+          name: `${safeExportName('Общая маска')}-${combined.width}x${combined.height}.png`,
+          bytes: await canvasToPngBytes(combined)
+        });
+      }
+    }
+    withMasks.forEach((screen) => {
+      files.push({ name: `${safeExportName(screen.name)}-mask.png`, bytes: dataUrlToBytes(screen.imageSource) });
+    });
+    return files;
+  }
+
+  async function exportMask(includeDataPath = false): Promise<void> {
+    if (!includeDataPath && selectedScreenIds.length > 1) {
+      const selected = placedScreens.filter((screen) => selectedScreenIds.includes(screen.id));
+      setImportStatus(`Подготовка PNG для ${selected.length} экранов…`);
+      try {
+        const files = await buildScreenMaskFiles(selected);
+        if (files.length === 0) {
+          setImportStatus('У выбранных экранов нет готовых масок для экспорта');
+          return;
+        }
+        const dir = await window.imageFiles.saveMany(files);
+        setImportStatus(dir ? `Экспортировано файлов: ${files.length} в ${dir}` : 'Экспорт отменён');
+      } catch (error) {
+        setImportStatus(error instanceof Error ? error.message : 'Не удалось экспортировать PNG');
+      }
+      return;
+    }
+
     setImportStatus(`Подготовка PNG ${widthPx} × ${heightPx}…`);
     window.setTimeout(() => {
       const maskCanvas = document.createElement('canvas');
@@ -1766,13 +1872,19 @@ export function TestPatternViewer({
       setImportStatus('Добавьте хотя бы один экран для экспорта');
       return;
     }
-    setImportStatus('Подготовка PDF-отчёта…');
+    setImportStatus('Подготовка PDF-отчёта и масок PNG…');
     try {
+      const selectedPlaced = placedScreens.filter((screen) =>
+        selectedScreenIds.length === 0 || selectedScreenIds.includes(screen.id));
+      const masks = await buildScreenMaskFiles(selectedPlaced);
       const filePath = await window.exportFiles.savePdf(
         buildReportHtml(projectName, exportScreens()),
-        `${safeExportName(projectName)}-report.pdf`
+        `${safeExportName(projectName)}-report.pdf`,
+        masks
       );
-      setImportStatus(filePath ? `PDF экспортирован: ${filePath}` : 'Экспорт отменён');
+      setImportStatus(filePath
+        ? `PDF экспортирован: ${filePath}${masks.length ? ` (+ ${masks.length} PNG рядом с ним)` : ''}`
+        : 'Экспорт отменён');
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : 'Не удалось экспортировать PDF');
     }
@@ -2032,10 +2144,12 @@ export function TestPatternViewer({
               Правый клик по кабинету выбранного экрана удаляет его; повторный правый клик возвращает кабинет.
             </p>
           )}
-          <button type="button" className="pixel-mask-control" onClick={() => exportMask(false)}>
-            Экспортировать маску PNG
+          <button type="button" className="pixel-mask-control" onClick={() => void exportMask(false)}>
+            {selectedScreenIds.length > 1
+              ? `Экспортировать маски PNG (${selectedScreenIds.length}: общая + по отдельности)`
+              : 'Экспортировать маску PNG'}
           </button>
-          <button type="button" className="wiring-control" disabled={!selectedDataScreen?.processor} onClick={() => exportMask(true)}>
+          <button type="button" className="wiring-control" disabled={!selectedDataScreen?.processor} onClick={() => void exportMask(true)}>
             Экспортировать PNG с путями
           </button>
           <fieldset className="project-export-panel">

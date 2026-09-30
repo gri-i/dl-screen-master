@@ -15,10 +15,11 @@ declare global {
     };
     imageFiles: {
       savePng(bytes: Uint8Array, defaultName: string): Promise<string | null>;
+      saveMany(files: { name: string; bytes: Uint8Array }[]): Promise<string | null>;
     };
     exportFiles: {
       save(bytes: Uint8Array, defaultName: string, extension: string): Promise<string | null>;
-      savePdf(html: string, defaultName: string): Promise<string | null>;
+      savePdf(html: string, defaultName: string, masks?: { name: string; bytes: Uint8Array }[]): Promise<string | null>;
     };
   }
 }

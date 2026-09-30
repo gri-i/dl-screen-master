@@ -40,6 +40,11 @@ export type OverlayPosition =
   | 'top-left' | 'top-center' | 'top-right'
   | 'bottom-left' | 'bottom-center' | 'bottom-right';
 
+/** Цветовая тема интерфейса (скин DreamLaser Design System). */
+export type UiSkin =
+  | 'vscode' | 'corporate' | 'midnight' | 'carbon'
+  | 'graphite' | 'ocean' | 'forest' | 'plum';
+
 /** Все сохраняемые визуальные параметры одного экрана. */
 export interface ScreenVisualSettings {
   showCabinetGrid: boolean;

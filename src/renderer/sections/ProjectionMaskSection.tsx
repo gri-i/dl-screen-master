@@ -69,6 +69,12 @@ function alphabeticIndex(value: number): string {
   return result;
 }
 
+function computePatternSize(settings: PixelPatternSettings): { patternWidth: number; patternHeight: number } {
+  const rawWidth = settings.columns * settings.displayWidth - (settings.columns - 1) * settings.overlapX;
+  const rawHeight = settings.rows * settings.displayHeight - (settings.rows - 1) * settings.overlapY;
+  return { patternWidth: Math.max(1, rawWidth), patternHeight: Math.max(1, rawHeight) };
+}
+
 function drawPixelPattern(
   canvas: HTMLCanvasElement,
   settings: PixelPatternSettings,
@@ -78,8 +84,7 @@ function drawPixelPattern(
 ): void {
   const context = canvas.getContext('2d');
   if (!context) return;
-  const patternWidth = settings.columns * settings.displayWidth - (settings.columns - 1) * settings.overlapX;
-  const patternHeight = settings.rows * settings.displayHeight - (settings.rows - 1) * settings.overlapY;
+  const { patternWidth, patternHeight } = computePatternSize(settings);
   const gridRows = settings.gridDensity === 'wide' ? 8 : settings.gridDensity === 'medium' ? 12 : 16;
   const gridSize = patternHeight / gridRows;
   const scaleX = renderWidth / patternWidth;
@@ -292,14 +297,38 @@ export function ProjectionMaskSection(): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const panStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
-  const patternWidth = settings.columns * settings.displayWidth - (settings.columns - 1) * settings.overlapX;
-  const patternHeight = settings.rows * settings.displayHeight - (settings.rows - 1) * settings.overlapY;
+  const { patternWidth, patternHeight } = computePatternSize(settings);
   const gridRows = settings.gridDensity === 'wide' ? 8 : settings.gridDensity === 'medium' ? 12 : 16;
   const calculatedGridSize = patternHeight / gridRows;
   const aspectRatio = useMemo(() => `${patternWidth} / ${patternHeight}`, [patternWidth, patternHeight]);
 
   function update<K extends keyof PixelPatternSettings>(key: K, value: PixelPatternSettings[K]): void {
-    setSettings((current) => ({ ...current, [key]: value }));
+    setSettings((current) => {
+      const next = { ...current, [key]: value };
+      if (key === 'displayWidth') {
+        next.overlapX = clamp(next.overlapX, 0, Math.max(0, next.displayWidth - 1));
+      }
+      if (key === 'displayHeight') {
+        next.overlapY = clamp(next.overlapY, 0, Math.max(0, next.displayHeight - 1));
+      }
+      return next;
+    });
+  }
+
+  function numberFieldHandlers<K extends keyof PixelPatternSettings>(key: K, min: number, max: number) {
+    return {
+      onChange: (event: React.ChangeEvent<HTMLInputElement>): void => {
+        const raw = event.target.value;
+        if (raw.trim() === '') return;
+        const parsed = Number(raw);
+        if (!Number.isFinite(parsed)) return;
+        update(key, Math.min(max, parsed) as PixelPatternSettings[K]);
+      },
+      onBlur: (event: React.FocusEvent<HTMLInputElement>): void => {
+        const parsed = Number(event.target.value);
+        update(key, clamp(Number.isFinite(parsed) ? parsed : min, min, max) as PixelPatternSettings[K]);
+      }
+    };
   }
 
   useEffect(() => {
@@ -467,18 +496,18 @@ export function ProjectionMaskSection(): JSX.Element {
           <fieldset>
             <legend>Сетка дисплеев</legend>
             <div className="compact-field-grid">
-              <label>По горизонтали<input type="number" min={1} max={12} value={settings.columns} onChange={(event) => update('columns', clamp(Number(event.target.value), 1, 12))} /></label>
-              <label>По вертикали<input type="number" min={1} max={12} value={settings.rows} onChange={(event) => update('rows', clamp(Number(event.target.value), 1, 12))} /></label>
+              <label>По горизонтали<input type="number" min={1} max={12} value={settings.columns} {...numberFieldHandlers('columns', 1, 12)} /></label>
+              <label>По вертикали<input type="number" min={1} max={12} value={settings.rows} {...numberFieldHandlers('rows', 1, 12)} /></label>
             </div>
           </fieldset>
 
           <fieldset>
             <legend>Разрешение дисплея</legend>
             <div className="compact-field-grid">
-              <label>Ширина, px<input type="number" min={64} max={8192} value={settings.displayWidth} onChange={(event) => update('displayWidth', clamp(Number(event.target.value), 64, 8192))} /></label>
-              <label>Высота, px<input type="number" min={64} max={8192} value={settings.displayHeight} onChange={(event) => update('displayHeight', clamp(Number(event.target.value), 64, 8192))} /></label>
-              <label>Overlap X<input type="number" min={0} max={settings.displayWidth - 1} value={settings.overlapX} onChange={(event) => update('overlapX', clamp(Number(event.target.value), 0, settings.displayWidth - 1))} /></label>
-              <label>Overlap Y<input type="number" min={0} max={settings.displayHeight - 1} value={settings.overlapY} onChange={(event) => update('overlapY', clamp(Number(event.target.value), 0, settings.displayHeight - 1))} /></label>
+              <label>Ширина, px<input type="number" min={64} max={8192} value={settings.displayWidth} {...numberFieldHandlers('displayWidth', 64, 8192)} /></label>
+              <label>Высота, px<input type="number" min={64} max={8192} value={settings.displayHeight} {...numberFieldHandlers('displayHeight', 64, 8192)} /></label>
+              <label>Overlap X<input type="number" min={0} max={settings.displayWidth - 1} value={settings.overlapX} {...numberFieldHandlers('overlapX', 0, settings.displayWidth - 1)} /></label>
+              <label>Overlap Y<input type="number" min={0} max={settings.displayHeight - 1} value={settings.overlapY} {...numberFieldHandlers('overlapY', 0, settings.displayHeight - 1)} /></label>
             </div>
           </fieldset>
 
