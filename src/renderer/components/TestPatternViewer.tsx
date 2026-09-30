@@ -173,14 +173,17 @@ const MAX_ZOOM = 3;
 const ZOOM_STEP = 0.25;
 const WORKSPACE_PX_PER_MM = 0.24;
 
-const NOVASTAR_CONTROLLERS = [
-  { model: 'MX40 Pro', ports: 20, maxPixelsPerPort: 659722 },
+// Для H9/H15 ports/maxPixelsPerPort — характеристики ОДНОЙ сендинг-карты
+// H_20xRJ45; maxSendingCards — сколько таких карт вмещает шасси. Итоговое
+// число портов контроллера = ports × выбранное количество карт (см. UI
+// «Sending-карт» и createNovaStarProcessor).
+const NOVASTAR_CONTROLLERS: { model: string; ports: number; maxPixelsPerPort: number; maxSendingCards?: number }[] = [
   { model: 'MCTRL4K', ports: 16, maxPixelsPerPort: 650000 },
-  { model: 'VX1000', ports: 10, maxPixelsPerPort: 650000 },
-  { model: 'VX600', ports: 6, maxPixelsPerPort: 650000 },
-  { model: 'VX400', ports: 4, maxPixelsPerPort: 650000 },
-  { model: 'MCTRL660', ports: 4, maxPixelsPerPort: 650000 }
-] as const;
+  { model: 'MCTRL660', ports: 4, maxPixelsPerPort: 650000 },
+  { model: 'MCTRL660 Pro', ports: 6, maxPixelsPerPort: 650000 },
+  { model: 'H9', ports: 20, maxPixelsPerPort: 650000, maxSendingCards: 5 },
+  { model: 'H15', ports: 20, maxPixelsPerPort: 650000, maxSendingCards: 10 }
+];
 
 function screenDisplaySize(
   preset: CabinetPreset,
@@ -332,6 +335,7 @@ export function TestPatternViewer({
   const [showResolution, setShowResolution] = useState(false);
   const [resolutionTextColor, setResolutionTextColor] = useState('#ffffff');
   const [logoSource, setLogoSource] = useState<string | null>(null);
+  const [logoName, setLogoName] = useState('');
   const [logoPosition, setLogoPosition] = useState<OverlayPosition>('top-right');
   const [logoScalePercent, setLogoScalePercent] = useState(20);
   const [logoOpacityPercent, setLogoOpacityPercent] = useState(50);
@@ -350,6 +354,7 @@ export function TestPatternViewer({
   const [activePowerCircuitId, setActivePowerCircuitId] = useState<string | null>(null);
   const [isEditingPowerPath, setIsEditingPowerPath] = useState(false);
   const [newControllerModel, setNewControllerModel] = useState<string>(NOVASTAR_CONTROLLERS[0].model);
+  const [newControllerSendingCards, setNewControllerSendingCards] = useState(1);
   const [pathPanelMode, setPathPanelMode] = useState<'data' | 'power'>('data');
   const [autoRoutingPattern, setAutoRoutingPattern] = useState<RoutingPattern>('snake-rows');
   const [autoRoutingCorner, setAutoRoutingCorner] = useState<StartCorner>('top-left');
@@ -959,11 +964,15 @@ export function TestPatternViewer({
   function createNovaStarProcessor(): Processor | null {
     const template = NOVASTAR_CONTROLLERS.find((controller) => controller.model === newControllerModel);
     if (!template) return null;
+    const cardCount = template.maxSendingCards
+      ? Math.min(Math.max(1, newControllerSendingCards), template.maxSendingCards)
+      : 1;
+    const totalPorts = template.ports * cardCount;
     return {
       id: crypto.randomUUID(),
       brand: 'NovaStar',
       model: template.model,
-      ports: Array.from({ length: template.ports }, (_, index) => ({
+      ports: Array.from({ length: totalPorts }, (_, index) => ({
         portId: `Port ${index + 1}`,
         controllerId: '1',
         controllerName: template.model,
@@ -1626,6 +1635,7 @@ export function TestPatternViewer({
       image.onload = () => {
         logoRef.current = image;
         setLogoSource(source);
+        setLogoName(file.name);
       };
       image.src = source;
     };
@@ -1917,7 +1927,7 @@ export function TestPatternViewer({
       autoRoutingOrder,
       selectedDataPreset.resolutionX * selectedDataPreset.resolutionY
     ) : null;
-  }, [selectedDataScreen?.processor, selectedDataPreset, autoRoutingOrder, newControllerModel]);
+  }, [selectedDataScreen?.processor, selectedDataPreset, autoRoutingOrder, newControllerModel, newControllerSendingCards]);
   const autoPowerSource = selectedDataScreen?.powerPlan ?? {
     voltage: 230,
     circuitBreakerAmps: 16,
@@ -2006,9 +2016,9 @@ export function TestPatternViewer({
       <div className="pattern-layout">
         <aside className="pattern-controls">
           <fieldset className="pixel-mask-control">
-            <legend>Подписи и логотип</legend>
+            <legend>Подпись экрана</legend>
             <label>
-              Подпись экрана:{' '}
+              Название:{' '}
               <input value={screenLabel} onChange={(e) => {
                 const name = e.target.value;
                 setScreenLabel(name);
@@ -2050,14 +2060,12 @@ export function TestPatternViewer({
                 />
               ))}
             </div>
-            <br />
-            <label>
-              <input type="checkbox" checked={showResolution} onChange={(e) => setShowResolution(e.target.checked)} />{' '}
-              Показать разрешение
-            </label>
-            <br />
+            <div className="switch-list" style={{ marginTop: 8 }}>
+              <label><span>Показать разрешение</span><button type="button" className={showResolution ? 'is-on' : ''} onClick={() => setShowResolution(!showResolution)}>{showResolution ? 'On' : 'Off'}</button></label>
+            </div>
             {showResolution && (
               <>
+                <br />
                 <label>
                   Цвет разрешения:{' '}
                   <input
@@ -2086,46 +2094,38 @@ export function TestPatternViewer({
                     />
                   ))}
                 </div>
-                <br />
               </>
             )}
-            <label>
-              Логотип:{' '}
+          </fieldset>
+
+          <div className="projection-logo-control pixel-mask-control">
+            <label className="projection-logo-button">
+              {logoSource ? 'Заменить логотип' : 'Загрузить логотип'}
               <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleLogoChange} />
             </label>
-            {logoSource && (
-              <>
-                <br />
-                <button type="button" onClick={() => { logoRef.current = null; setLogoSource(null); }}>
-                  Удалить логотип
-                </button>
-                <br />
-                <label>
-                  Позиция логотипа:{' '}
-                  <select value={logoPosition} onChange={(e) => setLogoPosition(e.target.value as OverlayPosition)}>
-                    {Object.entries(OVERLAY_POSITION_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </label>
-                <br />
-                <label>
-                  Ширина логотипа (% экрана):{' '}
-                  <input type="number" min={1} max={100} value={logoScalePercent} onChange={(e) => setLogoScalePercent(Number(e.target.value))} />
-                </label>
-                <br />
-                <label>
-                  Непрозрачность логотипа (%):{' '}
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={logoOpacityPercent}
-                    onChange={(e) => setLogoOpacityPercent(Math.min(100, Math.max(0, Number(e.target.value))))}
-                  />
-                </label>
-              </>
-            )}
+            {logoSource && <button type="button" title={logoName} onClick={() => { logoRef.current = null; setLogoSource(null); setLogoName(''); }}>Удалить</button>}
+            <span>{logoName || 'PNG, JPG, WebP или SVG'}</span>
+          </div>
+          <fieldset className="pixel-mask-control projection-logo-settings">
+            <legend>Настройки логотипа</legend>
+            {!logoSource && <p className="field-hint">Загрузите логотип выше, чтобы применить эти настройки.</p>}
+            <label>Позиция
+              <select value={logoPosition} onChange={(e) => setLogoPosition(e.target.value as OverlayPosition)}>
+                {Object.entries(OVERLAY_POSITION_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <label>Ширина, %<input type="number" min={1} max={100} value={logoScalePercent} onChange={(e) => setLogoScalePercent(Number(e.target.value))} /></label>
+            <label>Непрозрачность, %
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={logoOpacityPercent}
+                onChange={(e) => setLogoOpacityPercent(Math.min(100, Math.max(0, Number(e.target.value))))}
+              />
+            </label>
           </fieldset>
 
           <p className="field-hint pixel-mask-control">
@@ -2212,32 +2212,11 @@ export function TestPatternViewer({
 
           <fieldset className="pixel-mask-control">
             <legend>Наложение</legend>
-            <label>
-              <input
-                type="checkbox"
-                checked={showCabinetGrid}
-                onChange={(e) => setShowCabinetGrid(e.target.checked)}
-              />{' '}
-              Показать границы кабинетов
-            </label>
-            <br />
-            <label>
-              <input
-                type="checkbox"
-                checked={showCabinetNumbers}
-                onChange={(e) => setShowCabinetNumbers(e.target.checked)}
-              />{' '}
-              Нумерация кабинетов
-            </label>
-            <br />
-            <label>
-              <input
-                type="checkbox"
-                checked={showTestGrid}
-                onChange={(e) => setShowTestGrid(e.target.checked)}
-              />{' '}
-              Тестовая сетка
-            </label>
+            <div className="switch-list">
+              <label><span>Показать границы кабинетов</span><button type="button" className={showCabinetGrid ? 'is-on' : ''} onClick={() => setShowCabinetGrid(!showCabinetGrid)}>{showCabinetGrid ? 'On' : 'Off'}</button></label>
+              <label><span>Нумерация кабинетов</span><button type="button" className={showCabinetNumbers ? 'is-on' : ''} onClick={() => setShowCabinetNumbers(!showCabinetNumbers)}>{showCabinetNumbers ? 'On' : 'Off'}</button></label>
+              <label><span>Тестовая сетка</span><button type="button" className={showTestGrid ? 'is-on' : ''} onClick={() => setShowTestGrid(!showTestGrid)}>{showTestGrid ? 'On' : 'Off'}</button></label>
+            </div>
           </fieldset>
 
           <fieldset className="auto-routing-panel wiring-control">
@@ -2265,13 +2244,29 @@ export function TestPatternViewer({
                     </select>
                   </label>
                 </div>
-                <label><input type="checkbox" checked={autoRoutingReverse} onChange={(event) => setAutoRoutingReverse(event.target.checked)} /> Обратное направление</label>
+                <div className="switch-list">
+                  <label><span>Обратное направление</span><button type="button" className={autoRoutingReverse ? 'is-on' : ''} onClick={() => setAutoRoutingReverse(!autoRoutingReverse)}>{autoRoutingReverse ? 'On' : 'Off'}</button></label>
+                </div>
                 {!selectedDataScreen.processor && (
-                  <label>Контроллер
-                    <select value={newControllerModel} onChange={(event) => setNewControllerModel(event.target.value)}>
-                      {NOVASTAR_CONTROLLERS.map((controller) => <option key={controller.model} value={controller.model}>{controller.model}</option>)}
-                    </select>
-                  </label>
+                  <>
+                    <label>Контроллер
+                      <select value={newControllerModel} onChange={(event) => setNewControllerModel(event.target.value)}>
+                        {NOVASTAR_CONTROLLERS.map((controller) => <option key={controller.model} value={controller.model}>{controller.model}</option>)}
+                      </select>
+                    </label>
+                    {(() => {
+                      const template = NOVASTAR_CONTROLLERS.find((controller) => controller.model === newControllerModel);
+                      return template?.maxSendingCards ? (
+                        <label>Sending-карт установлено
+                          <select value={newControllerSendingCards} onChange={(event) => setNewControllerSendingCards(Number(event.target.value))}>
+                            {Array.from({ length: template.maxSendingCards }, (_, index) => index + 1).map((count) => (
+                              <option key={count} value={count}>{count} × {template.ports} портов = {count * template.ports}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null;
+                    })()}
+                  </>
                 )}
                 <div className="auto-routing-summary">
                   <span>Кабинетов: <b>{autoRoutingOrder.length}</b></span>
@@ -2325,11 +2320,23 @@ export function TestPatternViewer({
                   <select value={newControllerModel} onChange={(event) => setNewControllerModel(event.target.value)}>
                     {NOVASTAR_CONTROLLERS.map((controller) => (
                       <option key={controller.model} value={controller.model}>
-                        {controller.model} · {controller.ports} портов
+                        {controller.model} · {controller.ports} портов{controller.maxSendingCards ? '/карта' : ''}
                       </option>
                     ))}
                   </select>
                 </label>
+                {(() => {
+                  const template = NOVASTAR_CONTROLLERS.find((controller) => controller.model === newControllerModel);
+                  return template?.maxSendingCards ? (
+                    <label>Sending-карт установлено
+                      <select value={newControllerSendingCards} onChange={(event) => setNewControllerSendingCards(Number(event.target.value))}>
+                        {Array.from({ length: template.maxSendingCards }, (_, index) => index + 1).map((count) => (
+                          <option key={count} value={count}>{count} × {template.ports} портов = {count * template.ports}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null;
+                })()}
                 <button type="button" onClick={addNovaStarController}>Добавить и редактировать пути</button>
               </div>
             ) : (

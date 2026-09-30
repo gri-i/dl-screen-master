@@ -780,18 +780,17 @@ export function ProjectionMaskSection(): JSX.Element {
             {logo && <button type="button" title={logoName} onClick={() => { setLogo(null); setLogoName(''); }}>Удалить</button>}
             <span>{logoName || 'PNG, JPG или WebP'}</span>
           </div>
-          {logo && (
-            <fieldset className="projection-logo-settings">
-              <legend>Настройки логотипа</legend>
-              <label>Позиция
-                <select value={settings.logoPosition} onChange={(event) => update('logoPosition', event.target.value as OverlayPosition)}>
-                  {Object.entries(LOGO_POSITION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-              <label>Ширина, %<input type="number" min={1} max={100} value={settings.logoScalePercent} onChange={(event) => update('logoScalePercent', clamp(Number(event.target.value), 1, 100))} /></label>
-              <label>Непрозрачность, %<input type="number" min={0} max={100} value={settings.logoOpacityPercent} onChange={(event) => update('logoOpacityPercent', clamp(Number(event.target.value), 0, 100))} /></label>
-            </fieldset>
-          )}
+          <fieldset className="projection-logo-settings">
+            <legend>Настройки логотипа</legend>
+            {!logo && <p className="field-hint">Загрузите логотип выше, чтобы применить эти настройки.</p>}
+            <label>Позиция
+              <select value={settings.logoPosition} onChange={(event) => update('logoPosition', event.target.value as OverlayPosition)}>
+                {Object.entries(LOGO_POSITION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label>Ширина, %<input type="number" min={1} max={100} value={settings.logoScalePercent} onChange={(event) => update('logoScalePercent', clamp(Number(event.target.value), 1, 100))} /></label>
+            <label>Непрозрачность, %<input type="number" min={0} max={100} value={settings.logoOpacityPercent} onChange={(event) => update('logoOpacityPercent', clamp(Number(event.target.value), 0, 100))} /></label>
+          </fieldset>
 
           {settings.mode === 'pixel' && (
             <>
@@ -945,7 +944,7 @@ export function ProjectionMaskSection(): JSX.Element {
               <label><span>Текст</span><input type="color" value={settings.textColor} onChange={(event) => update('textColor', event.target.value)} /></label>
             </div>
             <div className="projection-grid-divider" />
-            <div className="projection-switch-list">
+            <div className="switch-list">
               {settings.mode === 'pixel' && (
                 <label><span>Показывать окружности</span><button type="button" className={settings.showCircles ? 'is-on' : ''} onClick={() => update('showCircles', !settings.showCircles)}>{settings.showCircles ? 'On' : 'Off'}</button></label>
               )}
