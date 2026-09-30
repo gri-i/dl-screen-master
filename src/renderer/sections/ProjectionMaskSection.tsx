@@ -415,7 +415,7 @@ function drawMetricPattern(
   context.globalAlpha = 1;
 
   if (settings.showLabels) {
-    const fontSize = clamp(Math.round(gridStep * scale * .22), 9, 20);
+    const fontSize = clamp(Math.round(gridStep * scale * .22), 6, 200);
     const edgeInset = Math.max(6, fontSize * .6);
     context.font = `600 ${fontSize}px Inter, sans-serif`;
     context.fillStyle = settings.textColor;
@@ -448,8 +448,11 @@ function drawMetricPattern(
   }
 
   if (settings.showLabels) {
-    const titleSize = clamp(Math.round(46 * scale), 14, 46);
-    const infoSize = clamp(Math.round(26 * scale), 10, 26);
+    // Заданы в "физических" метрах полотна и переведены в px через плотность
+    // (pixelsPerMeter), а не как фиксированное число пикселей — иначе размер
+    // подписи на экспортированной маске менялся бы вместе с плотностью px/м.
+    const titleSize = clamp(Math.round(.46 * pixelsPerMeter * scale), 6, 600);
+    const infoSize = clamp(Math.round(.26 * pixelsPerMeter * scale), 4, 400);
     const squaresX = Math.max(1, Math.round(settings.metricWidthM / settings.metricGridSizeM));
     const squaresY = Math.max(1, Math.round(settings.metricHeightM / settings.metricGridSizeM));
     const centerX = x(widthPx / 2);
@@ -856,8 +859,11 @@ export function ProjectionMaskSection(): JSX.Element {
                   <button type="button" title="Сверху слева" className={settings.metricOrigin === 'top-left' ? 'is-active' : ''} onClick={() => update('metricOrigin', 'top-left')}>↖</button>
                   <span aria-hidden="true" />
                   <button type="button" title="Сверху справа" className={settings.metricOrigin === 'top-right' ? 'is-active' : ''} onClick={() => update('metricOrigin', 'top-right')}>↗</button>
-                  <button type="button" title="Снизу слева" className={settings.metricOrigin === 'bottom-left' ? 'is-active' : ''} onClick={() => update('metricOrigin', 'bottom-left')}>↙</button>
+                  <span aria-hidden="true" />
                   <button type="button" title="По центру" className={settings.metricOrigin === 'center' ? 'is-active' : ''} onClick={() => update('metricOrigin', 'center')}>●</button>
+                  <span aria-hidden="true" />
+                  <button type="button" title="Снизу слева" className={settings.metricOrigin === 'bottom-left' ? 'is-active' : ''} onClick={() => update('metricOrigin', 'bottom-left')}>↙</button>
+                  <span aria-hidden="true" />
                   <button type="button" title="Снизу справа" className={settings.metricOrigin === 'bottom-right' ? 'is-active' : ''} onClick={() => update('metricOrigin', 'bottom-right')}>↘</button>
                 </div>
               </fieldset>

@@ -167,6 +167,7 @@ input:not([type="checkbox"]):not([type="color"]):not([type="file"]), select {
   border: 1px solid var(--line); border-radius: 6px; outline: none; background: var(--panel-2);
 }
 input[type="number"] { max-width: 100%; }
+input:read-only { color: var(--muted); background: var(--panel); cursor: default; }
 input[type="color"] { width: 34px; height: 27px; padding: 1px; vertical-align: middle; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); }
 input[type="checkbox"] { accent-color: var(--accent); }
 input[type="file"] { max-width: 100%; color: var(--muted); font-size: 11px; }
@@ -283,7 +284,7 @@ button:hover { border-color: var(--accent); color: #fff; }
 .path-planning-tabs button, .pattern-mode-tabs button { padding: 7px 8px; border-color: transparent; background: transparent; }
 .path-planning-tabs button.is-active, .pattern-mode-tabs button.is-active { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
 .pattern-mode-tabs { margin-bottom: 8px; }
-.metric-origin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; width: 108px; margin-top: 6px; }
+.metric-origin-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 4px; width: 108px; margin-top: 6px; }
 .metric-origin-grid button {
   display: grid; place-items: center; width: 32px; height: 28px; padding: 0;
   border-radius: 5px; background: var(--panel-2); color: var(--muted); font-size: 13px;

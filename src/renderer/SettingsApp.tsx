@@ -39,10 +39,23 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
   useEffect(() => setPresets(initialPresets), [initialPresets]);
 
   function updateField(field: keyof typeof INITIAL_FORM, value: string): void {
-    setForm((current) => ({
-      ...current,
-      [field]: field === 'brand' || field === 'model' || field === 'receiverCardName' ? value : Number(value)
-    }));
+    setForm((current) => {
+      const next = {
+        ...current,
+        [field]: field === 'brand' || field === 'model' || field === 'receiverCardName' ? value : Number(value)
+      };
+      // Ширина/высота в мм не вводятся независимо от разрешения и шага пикселя —
+      // иначе для кабинета с непрямоугольным (несовпадающим) пикселем экран на
+      // холсте (сайзинг по мм) и его картинка (рендер по px) разъедутся по
+      // соотношению сторон, и любой текст на маске визуально растянется.
+      if (field === 'resolutionX' || field === 'pixelPitchMm') {
+        next.widthMm = Number((next.resolutionX * next.pixelPitchMm).toFixed(2));
+      }
+      if (field === 'resolutionY' || field === 'pixelPitchMm') {
+        next.heightMm = Number((next.resolutionY * next.pixelPitchMm).toFixed(2));
+      }
+      return next;
+    });
   }
 
   function persist(next: CabinetPreset[]): void {
@@ -88,8 +101,11 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
     setForm({
       brand: preset.brand,
       model: preset.model,
-      widthMm: preset.widthMm,
-      heightMm: preset.heightMm,
+      // Пересчитываем из разрешения × шаг пикселя, а не берём сохранённые
+      // значения напрямую — у старых пресетов, добавленных до этого фикса,
+      // они могли разойтись с реальным пикселем кабинета.
+      widthMm: Number((preset.resolutionX * preset.pixelPitchMm).toFixed(2)),
+      heightMm: Number((preset.resolutionY * preset.pixelPitchMm).toFixed(2)),
       pixelPitchMm: preset.pixelPitchMm,
       resolutionX: preset.resolutionX,
       resolutionY: preset.resolutionY,
@@ -225,11 +241,11 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
         <form className="preset-form" onSubmit={addPreset}>
           <label>Бренд<input required value={form.brand} onChange={(e) => updateField('brand', e.target.value)} /></label>
           <label>Модель<input required value={form.model} onChange={(e) => updateField('model', e.target.value)} /></label>
-          <label>Ширина, мм<input type="number" value={form.widthMm} onChange={(e) => updateField('widthMm', e.target.value)} /></label>
-          <label>Высота, мм<input type="number" value={form.heightMm} onChange={(e) => updateField('heightMm', e.target.value)} /></label>
           <label>Шаг пикселя, мм<input type="number" step="0.1" value={form.pixelPitchMm} onChange={(e) => updateField('pixelPitchMm', e.target.value)} /></label>
           <label>Разрешение X, px<input type="number" value={form.resolutionX} onChange={(e) => updateField('resolutionX', e.target.value)} /></label>
           <label>Разрешение Y, px<input type="number" value={form.resolutionY} onChange={(e) => updateField('resolutionY', e.target.value)} /></label>
+          <label>Ширина, мм<input type="number" value={form.widthMm} readOnly title="Считается как Разрешение X × Шаг пикселя" /></label>
+          <label>Высота, мм<input type="number" value={form.heightMm} readOnly title="Считается как Разрешение Y × Шаг пикселя" /></label>
           <label>Вес, кг<input type="number" step="0.1" value={form.weightKg} onChange={(e) => updateField('weightKg', e.target.value)} /></label>
           <label>Макс. мощность, Вт<input type="number" value={form.maxPowerW} onChange={(e) => updateField('maxPowerW', e.target.value)} /></label>
           <label>Средняя мощность, Вт<input type="number" value={form.avgPowerW} onChange={(e) => updateField('avgPowerW', e.target.value)} /></label>
