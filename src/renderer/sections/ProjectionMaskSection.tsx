@@ -709,7 +709,7 @@ export function ProjectionMaskSection(): JSX.Element {
         </style></head><body><h1>${escape(settings.name)} · ${settings.mode === 'metric' ? 'Метрическая маска' : 'Проекционная маска'}</h1><img class="mask" src="${mask}" alt="Маска"/>
         <table><tbody>${infoRows}</tbody></table>${projectorsSection}</body></html>`;
       const safeName = settings.name.trim().replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '-').replace(/\s+/g, '-').slice(0, 100) || 'projection-pattern';
-      const filePath = await window.exportFiles.savePdf(html, `${safeName}-${patternWidth}x${patternHeight}.pdf`);
+      const filePath = await window.exportFiles.savePdf(html, `${safeName}-${patternWidth}x${patternHeight}.pdf`, safeName);
       setExportStatus(filePath ? `PDF экспортирован: ${filePath}` : 'Экспорт отменён');
     } catch (error) {
       setExportStatus(error instanceof Error ? error.message : 'Не удалось экспортировать PDF');

@@ -80,13 +80,23 @@ export function routeProcessor(processor: Processor, order: string[], pixelsPerC
   };
 }
 
+/**
+ * @param maxCabinetsPerCircuit Ручной лимит кабинетов на линию (напр. из-за
+ * длины кабеля/разъёмов), а не из расчёта мощности. Когда задан, ИМЕЕТ
+ * ПРИОРИТЕТ над автоматическим лимитом по мощности — так что получившаяся
+ * цепь может оказаться электрически перегружена; это сознательно не
+ * ограничивается здесь, чтобы вызывающий код мог предупредить об этом
+ * пользователя (см. per-circuit overload-проверку в UI).
+ */
 export function generatePowerPlan(
   source: Omit<PowerPlan, 'circuits'>,
   order: string[],
-  cabinetMaxPowerW: number
+  cabinetMaxPowerW: number,
+  maxCabinetsPerCircuit?: number
 ): PowerPlan {
   const usablePowerW = usablePowerPerPortW(source.voltage, source.circuitBreakerAmps, source.safetyMarginPercent, source.powerFactor);
-  const capacity = Math.max(1, Math.floor(usablePowerW / Math.max(.001, cabinetMaxPowerW)));
+  const autoCapacity = Math.max(1, Math.floor(usablePowerW / Math.max(.001, cabinetMaxPowerW)));
+  const capacity = maxCabinetsPerCircuit && maxCabinetsPerCircuit > 0 ? Math.floor(maxCabinetsPerCircuit) : autoCapacity;
   const circuitCount = Math.max(1, Math.ceil(order.length / capacity));
   const phases: PowerPhase[] = source.phases === 3 ? ['L1', 'L2', 'L3'] : ['L1'];
   const circuits: PowerCircuit[] = Array.from({ length: circuitCount }, (_, index) => ({

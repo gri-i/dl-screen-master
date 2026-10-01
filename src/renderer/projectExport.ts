@@ -1,4 +1,4 @@
-import type { CabinetPreset, PowerPlan, Processor } from '@shared/types';
+import type { CabinetPreset, PowerCircuit, PowerPlan, Processor, ProcessorPort } from '@shared/types';
 import { usablePowerPerPortW } from '@shared/powerLimits';
 
 export interface ExportScreen {
@@ -95,23 +95,54 @@ function escapeXml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 }
 
+/** "S1P1" = Sending card 1, Port 1 — controllerId не всегда чистая цифра
+ * (напр. "A1" из NovaStar-сцены), поэтому номер карты вытаскиваем регуляркой. */
+function formatSignalPortLabel(port: ProcessorPort): string {
+  const cardNumber = port.controllerId?.match(/\d+/)?.[0] ?? port.controllerId;
+  const portNumber = port.sourcePortName ?? port.portId;
+  return cardNumber ? `S${cardNumber}P${portNumber}` : `P${portNumber}`;
+}
+
+function formatPowerCircuitLabel(circuit: PowerCircuit, index: number): string {
+  return `C${index + 1}·${circuit.phase}`;
+}
+
 export function buildScreenSvg(screen: ExportScreen, mode: 'signal' | 'power' = 'signal'): string {
   const cellWidth = screen.preset.widthMm;
   const cellHeight = screen.preset.heightMm;
   const width = screen.cols * cellWidth;
   const height = screen.rows * cellHeight;
   const empty = new Set(screen.emptyCabinetKeys);
-  const cells = Array.from({ length: screen.rows }, (_, row) =>
+  const routes = mode === 'power' ? screen.powerPlan?.circuits : screen.processor?.ports;
+  const coordFontSize = Math.min(cellWidth, cellHeight) * .12;
+  const portFontSize = coordFontSize * .72;
+
+  // Подпись порта/цепи — только на ПЕРВОМ кабинете каждого маршрута (не на
+  // каждом подряд — иначе на длинной цепи это просто шум), прижата к верху
+  // ячейки в виде плашки — линия пути идёт через ЦЕНТР ячейки, так что сверху
+  // она её не перекрывает.
+  const firstCabinetLabels = new Map<string, { label: string; colorIndex: number }>();
+  routes?.forEach((route, index) => {
+    const firstKey = route.assignedCabinets[0];
+    if (!firstKey) return;
+    const label = mode === 'power'
+      ? formatPowerCircuitLabel(route as PowerCircuit, index)
+      : formatSignalPortLabel(route as ProcessorPort);
+    firstCabinetLabels.set(firstKey, { label, colorIndex: index });
+  });
+
+  // Слой 1 — тело кабинетов, без текста.
+  const cabinetBodies = Array.from({ length: screen.rows }, (_, row) =>
     Array.from({ length: screen.cols }, (_, col) => {
       const key = `${col}-${row}`;
       const x = col * cellWidth;
       const y = row * cellHeight;
       return empty.has(key)
         ? `<rect x="${x}" y="${y}" width="${cellWidth}" height="${cellHeight}" fill="none" stroke="#9ca3af" stroke-dasharray="12 8"/>`
-        : `<g><rect x="${x}" y="${y}" width="${cellWidth}" height="${cellHeight}" fill="#18232c" stroke="#67e8f9" stroke-width="2"/><text x="${x + cellWidth / 2}" y="${y + cellHeight / 2}" fill="#e5f7ff" font-size="${Math.min(cellWidth, cellHeight) * .12}" text-anchor="middle" dominant-baseline="middle">${col + 1}:${row + 1}</text></g>`;
+        : `<rect x="${x}" y="${y}" width="${cellWidth}" height="${cellHeight}" fill="#18232c" stroke="#67e8f9" stroke-width="2"/>`;
     }).join('')
   ).join('');
-  const routes = mode === 'power' ? screen.powerPlan?.circuits : screen.processor?.ports;
+
   const paths = routes?.map((port, index) => {
     const centers = port.assignedCabinets.map((key) => {
       const [col, row] = key.split('-').map(Number);
@@ -133,7 +164,32 @@ export function buildScreenSvg(screen: ExportScreen, mode: 'signal' | 'power' = 
     const radius = Math.min(cellWidth, cellHeight) * .09;
     return `${segments}<circle cx="${first.x}" cy="${first.y}" r="${radius}" fill="#16a34a" stroke="#fff" stroke-width="${strokeWidth * .5}"/><circle cx="${last.x}" cy="${last.y}" r="${radius}" fill="#dc2626" stroke="#fff" stroke-width="${strokeWidth * .5}"/>`;
   }).join('') ?? '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#0b1117"/><title>${escapeXml(screen.name)}</title>${cells}${paths}<rect x="0" y="0" width="${width}" height="${height}" fill="none" stroke="#000" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+
+  // Слой 3 — весь текст поверх путей, чтобы линии НИКОГДА не перекрывали подписи.
+  const labels = Array.from({ length: screen.rows }, (_, row) =>
+    Array.from({ length: screen.cols }, (_, col) => {
+      const key = `${col}-${row}`;
+      if (empty.has(key)) return '';
+      const x = col * cellWidth;
+      const y = row * cellHeight;
+      // Координата — в левый верхний угол ячейки (не в центр, где проходит
+      // линия пути и стоят маркеры начала/конца).
+      const coordInset = coordFontSize * .35;
+      const coordText = `<text x="${x + coordInset}" y="${y + coordInset}" fill="#e5f7ff" font-size="${coordFontSize}" text-anchor="start" dominant-baseline="hanging">${col + 1}:${row + 1}</text>`;
+      const route = firstCabinetLabels.get(key);
+      if (!route) return coordText;
+      // Порт/цепь — плашкой по центру снизу ячейки, подальше от линии в центре.
+      const chipHeight = portFontSize * 1.5;
+      const chipWidth = Math.min(cellWidth * .94, route.label.length * portFontSize * .64 + portFontSize);
+      const chipX = x + (cellWidth - chipWidth) / 2;
+      const chipY = y + cellHeight - chipHeight - cellHeight * .05;
+      const color = `hsl(${route.colorIndex * 83} 78% 55%)`;
+      const portChip = `<rect x="${chipX}" y="${chipY}" width="${chipWidth}" height="${chipHeight}" rx="${chipHeight * .25}" fill="${color}" stroke="#fff" stroke-width="${portFontSize * .08}"/><text x="${x + cellWidth / 2}" y="${chipY + chipHeight / 2}" fill="#07131a" font-size="${portFontSize}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${escapeXml(route.label)}</text>`;
+      return `${coordText}${portChip}`;
+    }).join('')
+  ).join('');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#0b1117"/><title>${escapeXml(screen.name)}</title>${cabinetBodies}${paths}${labels}<rect x="0" y="0" width="${width}" height="${height}" fill="none" stroke="#000" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
 export function buildReportHtml(projectName: string, screens: ExportScreen[]): string {

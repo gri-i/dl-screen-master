@@ -1,5 +1,6 @@
 import { strFromU8, unzipSync } from 'fflate';
 import type { CabinetPreset, Processor, ProcessorPort } from '@shared/types';
+import { matchExistingPreset } from '@shared/presetValidation';
 import type { ScreenConfig } from './components/PowerCalculator';
 
 export interface ImportedNovaStarScreen {
@@ -10,6 +11,8 @@ export interface ImportedNovaStarScreen {
   sourceCabinetCount: number;
   /** Абсолютная позиция сцены в пикселях NovaStar (для объединения по sender). */
   origin?: { x: number; y: number };
+  /** true, если кабинет сматчен на уже существующий пресет базы (не новый). */
+  matchedExistingPreset?: boolean;
 }
 
 function mergeScreensBySendingCard(screens: ImportedNovaStarScreen[]): ImportedNovaStarScreen[] {
@@ -412,7 +415,7 @@ function readNovaStarScenes(bytes: Uint8Array, fileName: string): NovaStarSceneS
   }
 }
 
-export async function importNovaStarProject(file: File): Promise<{
+export async function importNovaStarProject(file: File, existingPresets: CabinetPreset[] = []): Promise<{
   screens: ImportedNovaStarScreen[];
   presets: CabinetPreset[];
 }> {
@@ -445,10 +448,9 @@ export async function importNovaStarProject(file: File): Promise<{
       widthMm = Math.max(1, Math.round((resolutionX * gridPitches[0]) / 10) * 10);
       heightMm = Math.max(1, Math.round((resolutionY * gridPitches[1]) / 10) * 10);
     }
-    const presetId = `novastar-${slug(`${brand}-${model}-${resolutionX}x${resolutionY}`)}`;
     const maxPowerW = Math.max(0, number(first, 'cabinetpower', 0));
-    const preset: CabinetPreset = {
-      id: presetId,
+    const parsedPreset: CabinetPreset = {
+      id: `novastar-${slug(`${brand}-${model}-${resolutionX}x${resolutionY}`)}`,
       brand,
       model,
       widthMm,
@@ -460,7 +462,14 @@ export async function importNovaStarProject(file: File): Promise<{
       maxPowerW,
       avgPowerW: Math.round(maxPowerW * 0.4)
     };
-    presetsById.set(presetId, preset);
+    // Сопоставляем с уже существующим в базе пресетом (по brand+model, затем
+    // по разрешению) — чтобы повторный импорт того же кабинета не плодил
+    // дубликаты "novastar-brand-model-...", а использовал реальные
+    // вес/мощность/мм уже заведённого пресета.
+    const existingMatch = matchExistingPreset([...existingPresets, ...presetsById.values()], parsedPreset);
+    const preset = existingMatch ?? parsedPreset;
+    const presetId = preset.id;
+    if (!existingMatch) presetsById.set(presetId, preset);
 
     const rawPositions = cabinets.map((cabinet) => ({
       x: number(cabinet, 'ScenePosX'),
@@ -530,7 +539,8 @@ export async function importNovaStarProject(file: File): Promise<{
       preset,
       processor,
       sourceCabinetCount: cabinets.length,
-      origin: { x: minX, y: minY }
+      origin: { x: minX, y: minY },
+      matchedExistingPreset: !!existingMatch
     });
   }
 

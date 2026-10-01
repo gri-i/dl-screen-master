@@ -25,6 +25,6 @@ contextBridge.exposeInMainWorld('imageFiles', {
 contextBridge.exposeInMainWorld('exportFiles', {
   save: (bytes: Uint8Array, defaultName: string, extension: string): Promise<string | null> =>
     ipcRenderer.invoke('export:save', bytes, defaultName, extension),
-  savePdf: (html: string, defaultName: string, masks?: { name: string; bytes: Uint8Array }[]): Promise<string | null> =>
-    ipcRenderer.invoke('export:pdf', html, defaultName, masks)
+  savePdf: (html: string, defaultName: string, folderName: string, masks?: { name: string; bytes: Uint8Array }[]): Promise<string | null> =>
+    ipcRenderer.invoke('export:pdf', html, defaultName, folderName, masks)
 });

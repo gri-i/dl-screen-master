@@ -19,7 +19,7 @@ declare global {
     };
     exportFiles: {
       save(bytes: Uint8Array, defaultName: string, extension: string): Promise<string | null>;
-      savePdf(html: string, defaultName: string, masks?: { name: string; bytes: Uint8Array }[]): Promise<string | null>;
+      savePdf(html: string, defaultName: string, folderName: string, masks?: { name: string; bytes: Uint8Array }[]): Promise<string | null>;
     };
   }
 }

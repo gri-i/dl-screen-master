@@ -171,7 +171,15 @@ const SNAP_DISTANCE_PX = 10;
 const MIN_ZOOM = 0.02;
 const MAX_ZOOM = 3;
 const ZOOM_STEP = 0.25;
-const WORKSPACE_PX_PER_MM = 0.24;
+// Экраны на холсте раскладки размещаются пропорционально пиксельному
+// разрешению (resolutionX/Y), а не физическому размеру кабинета в мм —
+// иначе два экрана на одинаковых по мм кабинетах, но с разным шагом
+// пикселя, выглядели бы на холсте одного размера, хотя разрешение у них разное.
+// Масштаб 1 = один CSS-пиксель холста на один нативный пиксель маски: при
+// меньшем масштабе <img> растягивает/сжимает PNG заметно сильнее native-размера
+// и даёт замыленную картинку (особенно на небольших по разрешению экранах);
+// обзор больших раскладок регулируется колесом (workspaceZoom), а не этим множителем.
+const WORKSPACE_PX_PER_PIXEL = 1;
 
 // Для H9/H15 ports/maxPixelsPerPort — характеристики ОДНОЙ сендинг-карты
 // H_20xRJ45; maxSendingCards — сколько таких карт вмещает шасси. Итоговое
@@ -191,8 +199,8 @@ function screenDisplaySize(
   rows: number,
   rotation: 0 | 90 | 180 | 270
 ): { width: number; height: number } {
-  const width = preset.widthMm * cols * WORKSPACE_PX_PER_MM;
-  const height = preset.heightMm * rows * WORKSPACE_PX_PER_MM;
+  const width = preset.resolutionX * cols * WORKSPACE_PX_PER_PIXEL;
+  const height = preset.resolutionY * rows * WORKSPACE_PX_PER_PIXEL;
   return rotation === 90 || rotation === 270 ? { width: height, height: width } : { width, height };
 }
 
@@ -355,11 +363,22 @@ export function TestPatternViewer({
   const [isEditingPowerPath, setIsEditingPowerPath] = useState(false);
   const [newControllerModel, setNewControllerModel] = useState<string>(NOVASTAR_CONTROLLERS[0].model);
   const [newControllerSendingCards, setNewControllerSendingCards] = useState(1);
+  const [isChangingController, setIsChangingController] = useState(false);
   const [pathPanelMode, setPathPanelMode] = useState<'data' | 'power'>('data');
   const [autoRoutingPattern, setAutoRoutingPattern] = useState<RoutingPattern>('snake-rows');
   const [autoRoutingCorner, setAutoRoutingCorner] = useState<StartCorner>('top-left');
   const [autoRoutingReverse, setAutoRoutingReverse] = useState(false);
   const [showAutoRoutingPreview, setShowAutoRoutingPreview] = useState(false);
+  // Превью-сетка красит кабинеты либо по data-портам, либо по силовым цепям —
+  // эти две раскладки группируют кабинеты по РАЗНЫМ лимитам (пиксели порта
+  // против мощности цепи) и границы групп почти никогда не совпадают, так что
+  // не стоит показывать одну из них и выдавать за превью обеих "Применить".
+  const [autoPreviewMode, setAutoPreviewMode] = useState<'data' | 'power'>('data');
+  // null = лимит кабинетов на силовую линию считается автоматически из
+  // мощности кабинета/автомата; число — ручной лимит (напр. из-за длины
+  // кабеля), который может электрически перегрузить линию — тогда покажем
+  // предупреждение, а не молча подрежем его до "безопасного" значения.
+  const [autoPowerCabinetLimit, setAutoPowerCabinetLimit] = useState<number | null>(null);
   const [snapGuides, setSnapGuides] = useState<{ x?: number; y?: number }>({});
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const selectionStartRef = useRef<{ x: number; y: number; additive: boolean } | null>(null);
@@ -408,8 +427,8 @@ export function TestPatternViewer({
   const heightPx = preset.resolutionY * rows;
   const widthMm = preset.widthMm * cols;
   const heightMm = preset.heightMm * rows;
-  const displayWidthPx = widthMm * WORKSPACE_PX_PER_MM;
-  const displayHeightPx = heightMm * WORKSPACE_PX_PER_MM;
+  const displayWidthPx = widthPx * WORKSPACE_PX_PER_PIXEL;
+  const displayHeightPx = heightPx * WORKSPACE_PX_PER_PIXEL;
   const effectiveLabelFontSize = scaledLabelFontSize(labelFontSize, widthPx, heightPx);
   const resolutionFontSize = Math.max(10, Math.round(effectiveLabelFontSize * .72));
   const stageSize = useMemo(() => {
@@ -438,7 +457,7 @@ export function TestPatternViewer({
         };
       }
     }
-    return nearest ? { ...nearest, millimeters: nearest.distance / WORKSPACE_PX_PER_MM } : null;
+    return nearest ? { ...nearest, pixels: nearest.distance / WORKSPACE_PX_PER_PIXEL } : null;
   }, [placedScreens, selectedPlacedScreenId]);
 
   useEffect(() => {
@@ -633,23 +652,11 @@ export function TestPatternViewer({
     ctx.font = `700 ${fontSize}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.shadowBlur = Math.max(3, fontSize * 0.1);
-    ctx.shadowOffsetX = Math.max(1, fontSize * 0.035);
-    ctx.shadowOffsetY = Math.max(1, fontSize * 0.045);
+    ctx.fillStyle = '#ffffff';
 
     for (let row = 0; row < rows; row += 1) {
       for (let col = 0; col < cols; col += 1) {
         if (screenConfig.emptyCabinetKeys.includes(`${col}-${row}`)) continue;
-        const sample = ctx.getImageData(
-          Math.min(widthPx - 1, Math.floor((col + 0.5) * preset.resolutionX)),
-          Math.min(heightPx - 1, Math.floor((row + 0.5) * preset.resolutionY)),
-          1,
-          1
-        ).data;
-        const luminance = sample[0] * 0.299 + sample[1] * 0.587 + sample[2] * 0.114;
-        const isLight = luminance > 150;
-        ctx.fillStyle = isLight ? '#000000' : '#ffffff';
-        ctx.shadowColor = isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.95)';
         ctx.fillText(
           `${row + 1}.${col + 1}`,
           col * preset.resolutionX + padding,
@@ -677,7 +684,14 @@ export function TestPatternViewer({
 
     const centerRadius = Math.max(0, (Math.min(widthPx, heightPx) - lineWidth) / 2);
     const cabinetResolution = Math.max(1, Math.min(preset.resolutionX, preset.resolutionY));
-    const sideDiameterUnits = Math.min(2, Math.floor(Math.min(widthPx, heightPx) / cabinetResolution));
+    // Верхний и нижний (или левый и правый) круги стоят на одной стороне
+    // экрана на расстоянии друг от друга в sideDiameter от каждого края —
+    // чтобы они не пересекались, диаметр не должен быть больше половины
+    // меньшей стороны экрана. На экране высотой в 3 кабинета диаметр в 2
+    // кабинета (прежний максимум) уже даёт пересечение — уменьшаем до
+    // одного кабинета, если места не хватает.
+    const maxSideDiameterUnits = Math.min(widthPx, heightPx) / (2 * cabinetResolution);
+    const sideDiameterUnits = Math.max(1, Math.min(2, Math.floor(maxSideDiameterUnits)));
     const sideDiameter = sideDiameterUnits * cabinetResolution;
     const sideRadius = Math.max(0, sideDiameter / 2 - lineWidth / 2);
     const sideXLeft = sideDiameter / 2;
@@ -959,6 +973,20 @@ export function TestPatternViewer({
       : screen));
     setActiveDataPortId(processor.ports[0]?.portId ?? null);
     setIsEditingDataPath(true);
+    setIsChangingController(false);
+  }
+
+  function startChangingController(processor: Processor): void {
+    // Предзаполняем выбор текущей моделью/числом sending-карт контроллера —
+    // иначе форма открывалась бы на дефолтном контроллере из списка, что
+    // легко спутать с "уже выбран текущий".
+    const template = NOVASTAR_CONTROLLERS.find((controller) => controller.model === processor.model);
+    setNewControllerModel(template?.model ?? NOVASTAR_CONTROLLERS[0].model);
+    if (template?.maxSendingCards) {
+      const cardCount = new Set(processor.ports.map((port) => port.controllerId)).size;
+      setNewControllerSendingCards(Math.min(Math.max(1, cardCount), template.maxSendingCards));
+    }
+    setIsChangingController(true);
   }
 
   function createNovaStarProcessor(): Processor | null {
@@ -972,14 +1000,22 @@ export function TestPatternViewer({
       id: crypto.randomUUID(),
       brand: 'NovaStar',
       model: template.model,
-      ports: Array.from({ length: totalPorts }, (_, index) => ({
-        portId: `Port ${index + 1}`,
-        controllerId: '1',
-        controllerName: template.model,
-        sourcePortName: String(index + 1),
-        maxPixels: template.maxPixelsPerPort,
-        assignedCabinets: []
-      }))
+      // Нумеруем sending-карту и порт на ней по отдельности (а не один общий
+      // счётчик 1..totalPorts) — иначе при нескольких sending-картах (H9/H15)
+      // controllerId всегда был бы "1", и в подписи S{card}P{port} на схеме
+      // карты было бы невозможно различить.
+      ports: Array.from({ length: totalPorts }, (_, index) => {
+        const cardNumber = Math.floor(index / template.ports) + 1;
+        const portInCard = (index % template.ports) + 1;
+        return {
+          portId: cardCount > 1 ? `Sending card ${cardNumber} · Port ${portInCard}` : `Port ${portInCard}`,
+          controllerId: String(cardNumber),
+          controllerName: template.model,
+          sourcePortName: String(portInCard),
+          maxPixels: template.maxPixelsPerPort,
+          assignedCabinets: []
+        };
+      })
     };
   }
 
@@ -1580,18 +1616,31 @@ export function TestPatternViewer({
 
     setImportStatus('Чтение NovaStar…');
     try {
-      const imported = await importNovaStarProject(file);
-      // SRCX/SCR часто не содержат паспортную мощность и импорт создаёт для
-      // них технический пресет. Для расчёта питания используем выбранный
-      // пользователем кабинет из общей базы, а не это служебное значение.
-      const powerPreset = preset;
-      if (!powerPreset) throw new Error('Выберите кабинет из базы перед импортом');
+      // Сопоставляем кабинеты из файла с уже существующими в базе пресетами
+      // (по brand+model, затем по разрешению) — повторный импорт того же
+      // кабинета переиспользует существующий пресет вместо нового дубликата
+      // "novastar-brand-model-...". Геометрия (разрешение/мм) всегда берётся
+      // из самого файла — её нельзя подменять выбранным в базе пресетом,
+      // иначе для некавадратных кабинетов (напр. 256×64) раскладка/пути
+      // визуально разъедутся с реальным кабинетом.
+      const imported = await importNovaStarProject(file, presets);
+      // SRCX/SCR часто не содержат паспортные вес/мощность кабинета. Для
+      // несматченных (новых) пресетов с такими "пустыми" значениями донором
+      // веса/мощности служит кабинет, выбранный пользователем в базе —
+      // геометрия при этом не трогается.
+      const powerDonor = preset;
+      const newPresetsById = new Map<string, CabinetPreset>();
       const baseY = placedScreens.reduce((bottom, screen) => Math.max(bottom, screen.y + screen.height), 0) + 80;
       let nextX = 32;
       const screens = imported.screens.map((screen) => {
-        const screenConfig: ScreenConfig = { ...screen.config, presetId: powerPreset.id };
-        const width = screenConfig.cols * powerPreset.widthMm * WORKSPACE_PX_PER_MM;
-        const height = screenConfig.rows * powerPreset.heightMm * WORKSPACE_PX_PER_MM;
+        const looksPlaceholder = screen.preset.maxPowerW <= 0.1 || screen.preset.weightKg <= 0.01;
+        const finalPreset = !screen.matchedExistingPreset && looksPlaceholder && powerDonor
+          ? { ...screen.preset, weightKg: powerDonor.weightKg, maxPowerW: powerDonor.maxPowerW, avgPowerW: powerDonor.avgPowerW }
+          : screen.preset;
+        if (!screen.matchedExistingPreset) newPresetsById.set(finalPreset.id, finalPreset);
+        const screenConfig: ScreenConfig = { ...screen.config, presetId: finalPreset.id };
+        const width = screenConfig.cols * finalPreset.resolutionX * WORKSPACE_PX_PER_PIXEL;
+        const height = screenConfig.rows * finalPreset.resolutionY * WORKSPACE_PX_PER_PIXEL;
         const visualSettings = {
           ...currentVisualSettings(),
           config: visiblePatternConfig(config),
@@ -1600,7 +1649,7 @@ export function TestPatternViewer({
         const placed: PlacedScreen = {
           id: crypto.randomUUID(),
           name: screen.name,
-          imageSource: renderImportedPreview(screenConfig, powerPreset, screen.name),
+          imageSource: renderImportedPreview(screenConfig, finalPreset, screen.name),
           screenConfig,
           visualSettings,
           width,
@@ -1613,12 +1662,17 @@ export function TestPatternViewer({
         nextX += width + 80;
         return placed;
       });
+      const newPresets = Array.from(newPresetsById.values());
+      if (newPresets.length > 0) onPresetsImport(newPresets);
       const allScreens = [...placedScreens, ...screens];
       setPlacedScreens(allScreens);
       setSelectedPlacedScreenId(null);
       setSelectedScreenIds([]);
       window.requestAnimationFrame(() => fitScreensInWorkspace(allScreens));
-      setImportStatus(`Импортировано экранов: ${screens.length} · питание по базе: ${powerPreset.brand} ${powerPreset.model} (${powerPreset.maxPowerW} Вт/каб.)`);
+      const matchedCount = imported.screens.filter((screen) => screen.matchedExistingPreset).length;
+      setImportStatus(`Импортировано экранов: ${screens.length}` +
+        (matchedCount > 0 ? ` · сопоставлено с базой: ${matchedCount}` : '') +
+        (newPresets.length > 0 ? ` · новых пресетов: ${newPresets.length}` : ''));
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : 'Не удалось импортировать файл NovaStar');
     }
@@ -1742,7 +1796,7 @@ export function TestPatternViewer({
 
   // Composites several placed screens into one PNG, positioned and rotated the
   // same way they sit on the canvas (screen.x/y/width/height are already in
-  // physical-proportional workspace units — see WORKSPACE_PX_PER_MM), scaled
+  // resolution-proportional workspace units — see WORKSPACE_PX_PER_PIXEL), scaled
   // up so the highest-density screen in the set renders at its native resolution.
   async function buildCombinedMaskCanvas(screens: PlacedScreen[]): Promise<HTMLCanvasElement | null> {
     if (screens.length < 2) return null;
@@ -1890,6 +1944,7 @@ export function TestPatternViewer({
       const filePath = await window.exportFiles.savePdf(
         buildReportHtml(projectName, exportScreens()),
         `${safeExportName(projectName)}-report.pdf`,
+        safeExportName(projectName),
         masks
       );
       setImportStatus(filePath
@@ -1936,6 +1991,12 @@ export function TestPatternViewer({
     phases: 3 as const,
     circuits: []
   };
+  const autoUsablePowerW = usablePowerPerPortW(
+    autoPowerSource.voltage, autoPowerSource.circuitBreakerAmps, autoPowerSource.safetyMarginPercent, autoPowerSource.powerFactor
+  );
+  const autoPowerAutoCapacity = selectedDataPreset
+    ? Math.max(1, Math.floor(autoUsablePowerW / Math.max(.001, selectedDataPreset.maxPowerW)))
+    : null;
   const autoPreviewPowerPlan = useMemo(() => selectedDataPreset
     ? generatePowerPlan({
         voltage: autoPowerSource.voltage,
@@ -1943,7 +2004,7 @@ export function TestPatternViewer({
         safetyMarginPercent: autoPowerSource.safetyMarginPercent,
         powerFactor: autoPowerSource.powerFactor,
         phases: autoPowerSource.phases
-      }, autoRoutingOrder, selectedDataPreset.maxPowerW)
+      }, autoRoutingOrder, selectedDataPreset.maxPowerW, autoPowerCabinetLimit ?? undefined)
     : null, [
       selectedDataPreset,
       autoRoutingOrder,
@@ -1951,8 +2012,12 @@ export function TestPatternViewer({
       autoPowerSource.circuitBreakerAmps,
       autoPowerSource.safetyMarginPercent,
       autoPowerSource.powerFactor,
-      autoPowerSource.phases
+      autoPowerSource.phases,
+      autoPowerCabinetLimit
     ]);
+  const autoPowerOverloadedCircuits = selectedDataPreset
+    ? autoPreviewPowerPlan?.circuits.filter((circuit) => circuit.assignedCabinets.length * selectedDataPreset.maxPowerW > autoUsablePowerW).length ?? 0
+    : 0;
 
   function applyAutoRouting(scope: 'data' | 'power' | 'all'): void {
     if (!selectedDataScreen || !selectedDataPreset) return;
@@ -2008,6 +2073,16 @@ export function TestPatternViewer({
           <button type="button" disabled={historyRef.current.future.length === 0} onClick={() => restoreHistory('redo')} title="Повторить (Ctrl+Y)">↷</button>
           <span className="toolbar-divider" />
           <button type="button" disabled={selectedScreenIds.length === 0} onClick={rotateSelected} title="Повернуть на 90°">↻ 90°</button>
+          <span className="toolbar-divider" />
+          <button type="button" onClick={() => void exportMask(false)} title="Экспортировать маску выбранного экрана (или нескольких) в PNG">
+            {selectedScreenIds.length > 1 ? `PNG масок (${selectedScreenIds.length})` : 'PNG маска'}
+          </button>
+          <button type="button" disabled={!selectedDataScreen?.processor} onClick={() => void exportMask(true)} title="Экспортировать маску с сигнальным путём в PNG">
+            PNG с путями
+          </button>
+          <button type="button" disabled={placedScreens.length === 0} onClick={() => void exportProjectPdf()} title="Экспортировать PDF-отчёт по проекту">
+            Экспорт PDF
+          </button>
         </div>
       </div>
 
@@ -2144,20 +2219,6 @@ export function TestPatternViewer({
               Правый клик по кабинету выбранного экрана удаляет его; повторный правый клик возвращает кабинет.
             </p>
           )}
-          <button type="button" className="pixel-mask-control" onClick={() => void exportMask(false)}>
-            {selectedScreenIds.length > 1
-              ? `Экспортировать маски PNG (${selectedScreenIds.length}: общая + по отдельности)`
-              : 'Экспортировать маску PNG'}
-          </button>
-          <button type="button" className="wiring-control" disabled={!selectedDataScreen?.processor} onClick={() => void exportMask(true)}>
-            Экспортировать PNG с путями
-          </button>
-          <fieldset className="project-export-panel">
-            <legend>Экспорт проекта</legend>
-            <button type="button" disabled={placedScreens.length === 0} onClick={() => void exportProjectPdf()}>
-              Экспорт проекта PDF
-            </button>
-          </fieldset>
           <p className="field-hint pixel-mask-control">
             Выбранный паттерн сохраняется в установленных кабинетах; пустые ячейки
             прозрачные. Размер файла: {widthPx} × {heightPx} px.
@@ -2243,6 +2304,18 @@ export function TestPatternViewer({
                       <option value="bottom-right">Снизу справа</option>
                     </select>
                   </label>
+                  <label>Кабинетов в линию (Power)
+                    <input
+                      type="number"
+                      min={1}
+                      placeholder={autoPowerAutoCapacity !== null ? `Авто (${autoPowerAutoCapacity})` : 'Авто'}
+                      value={autoPowerCabinetLimit ?? ''}
+                      onChange={(event) => {
+                        const raw = event.target.value;
+                        setAutoPowerCabinetLimit(raw.trim() === '' ? null : Math.max(1, Math.round(Number(raw))));
+                      }}
+                    />
+                  </label>
                 </div>
                 <div className="switch-list">
                   <label><span>Обратное направление</span><button type="button" className={autoRoutingReverse ? 'is-on' : ''} onClick={() => setAutoRoutingReverse(!autoRoutingReverse)}>{autoRoutingReverse ? 'On' : 'Off'}</button></label>
@@ -2271,26 +2344,41 @@ export function TestPatternViewer({
                 <div className="auto-routing-summary">
                   <span>Кабинетов: <b>{autoRoutingOrder.length}</b></span>
                   <span>Data-портов: <b>{autoPreviewProcessor?.ports.filter((port) => port.assignedCabinets.length > 0).length ?? 0}</b></span>
-                  <span>Силовых цепей: <b>{autoPreviewPowerPlan?.circuits.length ?? 0}</b></span>
+                  <span className={autoPowerOverloadedCircuits > 0 ? 'is-overloaded' : undefined}>
+                    Силовых цепей: <b>{autoPreviewPowerPlan?.circuits.length ?? 0}</b>
+                    {autoPowerOverloadedCircuits > 0 && <> · перегружено: <b>{autoPowerOverloadedCircuits}</b></>}
+                  </span>
                 </div>
                 <button type="button" onClick={() => setShowAutoRoutingPreview((current) => !current)}>
                   {showAutoRoutingPreview ? 'Скрыть предпросмотр' : 'Предварительный просмотр'}
                 </button>
                 {showAutoRoutingPreview && (
                   <div className="auto-routing-preview">
+                    <div className="path-planning-tabs auto-preview-mode-tabs" role="tablist" aria-label="Что показывает превью">
+                      <button type="button" role="tab" aria-selected={autoPreviewMode === 'data'} className={autoPreviewMode === 'data' ? 'is-active' : ''} onClick={() => setAutoPreviewMode('data')}>Data-порты</button>
+                      <button type="button" role="tab" aria-selected={autoPreviewMode === 'power'} className={autoPreviewMode === 'power' ? 'is-active' : ''} onClick={() => setAutoPreviewMode('power')}>Силовые цепи</button>
+                    </div>
                     <div className="auto-routing-grid" style={{ gridTemplateColumns: `repeat(${selectedDataScreen.screenConfig.cols}, 1fr)` }}>
                       {Array.from({ length: selectedDataScreen.screenConfig.rows }, (_, row) =>
                         Array.from({ length: selectedDataScreen.screenConfig.cols }, (_, col) => {
                           const key = `${col}-${row}`;
                           if (selectedDataScreen.screenConfig.emptyCabinetKeys.includes(key)) return <span key={key} className="is-empty" />;
                           const orderIndex = autoRoutingOrder.indexOf(key);
-                          const portIndex = autoPreviewProcessor?.ports.findIndex((port) => port.assignedCabinets.includes(key)) ?? -1;
-                          return <span key={key} style={portIndex >= 0 ? { background: `hsl(${portIndex * 83} 62% 38%)` } : undefined}>{orderIndex + 1}</span>;
+                          const groupIndex = autoPreviewMode === 'data'
+                            ? autoPreviewProcessor?.ports.findIndex((port) => port.assignedCabinets.includes(key)) ?? -1
+                            : autoPreviewPowerPlan?.circuits.findIndex((circuit) => circuit.assignedCabinets.includes(key)) ?? -1;
+                          return <span key={key} style={groupIndex >= 0 ? { background: `hsl(${groupIndex * 83} 62% 38%)` } : undefined}>{orderIndex + 1}</span>;
                         })
                       )}
                     </div>
-                    {(autoPreviewProcessor?.ports.reduce((sum, port) => sum + port.assignedCabinets.length, 0) ?? 0) < autoRoutingOrder.length && (
+                    {autoPreviewMode === 'data' && (autoPreviewProcessor?.ports.reduce((sum, port) => sum + port.assignedCabinets.length, 0) ?? 0) < autoRoutingOrder.length && (
                       <p className="data-path-summary is-warning">Портов контроллера недостаточно: часть кабинетов не будет назначена.</p>
+                    )}
+                    {autoPreviewMode === 'power' && autoPowerOverloadedCircuits > 0 && (
+                      <p className="data-path-summary is-warning">
+                        Перегружено силовых линий: {autoPowerOverloadedCircuits} — превышен лимит {(autoUsablePowerW / 1000).toFixed(2)} кВт на линию.
+                        {autoPowerAutoCapacity !== null && ` Безопасно: до ${autoPowerAutoCapacity} каб./линию.`}
+                      </p>
                     )}
                     <div className="auto-routing-actions">
                       <button type="button" onClick={() => applyAutoRouting('data')}>Применить Data</button>
@@ -2342,9 +2430,49 @@ export function TestPatternViewer({
             ) : (
               <>
                 <strong>{selectedDataScreen.processor.brand} {selectedDataScreen.processor.model}</strong>
-                <button type="button" className={isEditingDataPath ? 'is-active' : ''} onClick={toggleDataPathEditor}>
-                  {isEditingDataPath ? 'Завершить редактирование трасс' : 'Редактировать трассы'}
-                </button>
+                <div className="data-path-actions">
+                  <button type="button" className={isEditingDataPath ? 'is-active' : ''} onClick={toggleDataPathEditor}>
+                    {isEditingDataPath ? 'Завершить редактирование трасс' : 'Редактировать трассы'}
+                  </button>
+                  <button
+                    type="button"
+                    className={isChangingController ? 'is-active' : ''}
+                    onClick={() => (isChangingController ? setIsChangingController(false) : startChangingController(selectedDataScreen.processor!))}
+                  >
+                    Сменить контроллер
+                  </button>
+                </div>
+                {isChangingController && (
+                  <div className="data-controller-create">
+                    <p className="field-hint is-warning">Смена контроллера пересоздаёт все порты — уже назначенные трассы на этом экране будут сброшены.</p>
+                    <label>
+                      Контроллер
+                      <select value={newControllerModel} onChange={(event) => setNewControllerModel(event.target.value)}>
+                        {NOVASTAR_CONTROLLERS.map((controller) => (
+                          <option key={controller.model} value={controller.model}>
+                            {controller.model} · {controller.ports} портов{controller.maxSendingCards ? '/карта' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {(() => {
+                      const template = NOVASTAR_CONTROLLERS.find((controller) => controller.model === newControllerModel);
+                      return template?.maxSendingCards ? (
+                        <label>Sending-карт установлено
+                          <select value={newControllerSendingCards} onChange={(event) => setNewControllerSendingCards(Number(event.target.value))}>
+                            {Array.from({ length: template.maxSendingCards }, (_, index) => index + 1).map((count) => (
+                              <option key={count} value={count}>{count} × {template.ports} портов = {count * template.ports}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null;
+                    })()}
+                    <div className="data-path-actions">
+                      <button type="button" onClick={addNovaStarController}>Применить</button>
+                      <button type="button" onClick={() => setIsChangingController(false)}>Отмена</button>
+                    </div>
+                  </div>
+                )}
                 {isEditingDataPath && (
                   <>
                     <p className="field-hint">Выберите порт, затем нажимайте кабинеты в порядке прохождения сигнала. Повторный клик удаляет кабинет из цепочки.</p>
@@ -2511,33 +2639,40 @@ export function TestPatternViewer({
                     const rows = screen.screenConfig.rows;
                     const overlayWidth = screen.rotation === 90 || screen.rotation === 270 ? screen.height : screen.width;
                     const overlayHeight = screen.rotation === 90 || screen.rotation === 270 ? screen.width : screen.height;
+                    const screenPreset = presets.find((item) => item.id === screen.screenConfig.presetId) ?? presets[0];
+                    // viewBox в нативных пикселях кабинета (а не в "кабинетных" единицах 1×1) —
+                    // иначе у прямоугольных (не квадратных) кабинетов svg растягивается по
+                    // большей оси и оверлей пути съезжает относительно реального изображения.
+                    const cellW = screenPreset.resolutionX;
+                    const cellH = screenPreset.resolutionY;
+                    const unit = Math.min(cellW, cellH);
                     return (
                       <svg
                         className={`data-path-overlay${isEditingDataPath && selectedPlacedScreenId === screen.id ? ' is-editing' : ''}`}
                         onPointerUp={finishPathPointerDraw}
                         onPointerCancel={finishPathPointerDraw}
-                        viewBox={`0 0 ${cols} ${rows}`}
+                        viewBox={`0 0 ${cols * cellW} ${rows * cellH}`}
                         style={{
                           left: '50%',
                           top: '50%',
                           width: overlayWidth,
                           height: overlayHeight,
-                          transform: `translate(-50%, -50%) rotate(${screen.rotation}deg)`
-                        }}
+                          transform: `translate(-50%, -50%) rotate(${screen.rotation}deg)`,
+                          '--cell-unit': unit
+                        } as React.CSSProperties}
                       >
                         {isEditingDataPath && screen.processor.ports.flatMap((port, portIndex) => port.assignedCabinets.map((key) => {
                           const [col, row] = key.split('-').map(Number);
-                          return <rect key={`${port.portId}-${key}`} x={col} y={row} width="1" height="1" fill={`hsl(${portIndex * 83} 75% 55% / .24)`} />;
+                          return <rect key={`${port.portId}-${key}`} x={col * cellW} y={row * cellH} width={cellW} height={cellH} fill={`hsl(${portIndex * 83} 75% 55% / .24)`} />;
                         }))}
                         {screen.processor.ports.map((port, portIndex) => {
                           const centers = port.assignedCabinets.map((key) => {
                             const [col, row] = key.split('-').map(Number);
-                            return { x: col + .5, y: row + .5 };
+                            return { x: (col + .5) * cellW, y: (row + .5) * cellH };
                           });
                           const points = centers.map((point) => `${point.x},${point.y}`).join(' ');
                           const first = port.assignedCabinets[0]?.split('-').map(Number);
                           const last = port.assignedCabinets.at(-1)?.split('-').map(Number);
-                          const screenPreset = presets.find((item) => item.id === screen.screenConfig.presetId) ?? presets[0];
                           const portPixels = port.assignedCabinets.length * screenPreset.resolutionX * screenPreset.resolutionY;
                           const overloaded = portPixels > port.maxPixels || (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets);
                           const color = overloaded ? '#dc2626' : `hsl(${portIndex * 83} 78% 38%)`;
@@ -2545,19 +2680,20 @@ export function TestPatternViewer({
                             <g key={port.portId} className={selectedPlacedScreenId === screen.id && activeDataPortId && activeDataPortId !== port.portId ? 'is-dimmed' : ''}>
                               {port.assignedCabinets.length > 1 && (
                                 <>
-                                  <polyline points={points} fill="none" stroke="rgba(255,255,255,.82)" strokeWidth=".105" strokeLinecap="round" strokeLinejoin="round" />
-                                  <polyline points={points} fill="none" stroke={color} strokeWidth=".052" strokeLinecap="round" strokeLinejoin="round" />
+                                  <polyline points={points} fill="none" stroke="rgba(255,255,255,.82)" strokeWidth={unit * .105} strokeLinecap="round" strokeLinejoin="round" />
+                                  <polyline points={points} fill="none" stroke={color} strokeWidth={unit * .052} strokeLinecap="round" strokeLinejoin="round" />
                                   {centers.slice(0, -1).map((point, index) => {
                                     const next = centers[index + 1];
                                     const x = (point.x + next.x) / 2;
                                     const y = (point.y + next.y) / 2;
                                     const angle = Math.atan2(next.y - point.y, next.x - point.x) * 180 / Math.PI;
-                                    return <path key={`${port.portId}-arrow-${index}`} d="M-.085,-.065 L.09,0 L-.085,.065 Z" transform={`translate(${x} ${y}) rotate(${angle})`} fill={color} stroke="rgba(255,255,255,.92)" strokeWidth=".018" strokeLinejoin="round" />;
+                                    const size = unit * .095;
+                                    return <path key={`${port.portId}-arrow-${index}`} d={`M${-size * .9},${-size * .72} L${size * .95},0 L${-size * .9},${size * .72} Z`} transform={`translate(${x} ${y}) rotate(${angle})`} fill={color} stroke="rgba(255,255,255,.92)" strokeWidth={unit * .018} strokeLinejoin="round" />;
                                   })}
                                 </>
                               )}
-                              {first && <><circle cx={first[0] + .5} cy={first[1] + .5} r=".14" fill="#fff" opacity=".92" /><circle cx={first[0] + .5} cy={first[1] + .5} r=".095" fill="#16a34a" /></>}
-                              {last && <><circle cx={last[0] + .5} cy={last[1] + .5} r=".14" fill="#fff" opacity=".92" /><circle cx={last[0] + .5} cy={last[1] + .5} r=".095" fill="#dc2626" /></>}
+                              {first && <><circle cx={(first[0] + .5) * cellW} cy={(first[1] + .5) * cellH} r={unit * .14} fill="#fff" opacity=".92" /><circle cx={(first[0] + .5) * cellW} cy={(first[1] + .5) * cellH} r={unit * .095} fill="#16a34a" /></>}
+                              {last && <><circle cx={(last[0] + .5) * cellW} cy={(last[1] + .5) * cellH} r={unit * .14} fill="#fff" opacity=".92" /><circle cx={(last[0] + .5) * cellW} cy={(last[1] + .5) * cellH} r={unit * .095} fill="#dc2626" /></>}
                             </g>
                           );
                         })}
@@ -2565,7 +2701,7 @@ export function TestPatternViewer({
                           Array.from({ length: cols }, (_, col) => {
                             const key = `${col}-${row}`;
                             if (screen.screenConfig.emptyCabinetKeys.includes(key)) return null;
-                            return <rect key={`hit-${key}`} className="data-path-hit" x={col} y={row} width="1" height="1" onPointerDown={(event) => drawPathPointerDown(event, screen.id, key)} onPointerEnter={(event) => drawPathPointerEnter(event, screen.id, key)} />;
+                            return <rect key={`hit-${key}`} className="data-path-hit" x={col * cellW} y={row * cellH} width={cellW} height={cellH} onPointerDown={(event) => drawPathPointerDown(event, screen.id, key)} onPointerEnter={(event) => drawPathPointerEnter(event, screen.id, key)} />;
                           })
                         )}
                       </svg>
@@ -2577,6 +2713,10 @@ export function TestPatternViewer({
                     const overlayWidth = screen.rotation === 90 || screen.rotation === 270 ? screen.height : screen.width;
                     const overlayHeight = screen.rotation === 90 || screen.rotation === 270 ? screen.width : screen.height;
                     const screenPreset = presets.find((item) => item.id === screen.screenConfig.presetId) ?? presets[0];
+                    // См. комментарий в data-path overlay выше — viewBox в нативных px кабинета.
+                    const cellW = screenPreset.resolutionX;
+                    const cellH = screenPreset.resolutionY;
+                    const unit = Math.min(cellW, cellH);
                     const usablePowerW = usablePowerPerPortW(
                       screen.powerPlan.voltage,
                       screen.powerPlan.circuitBreakerAmps,
@@ -2588,17 +2728,17 @@ export function TestPatternViewer({
                         className={`data-path-overlay power-path-overlay${isEditingPowerPath ? ' is-editing' : ''}`}
                         onPointerUp={finishPathPointerDraw}
                         onPointerCancel={finishPathPointerDraw}
-                        viewBox={`0 0 ${cols} ${rows}`}
-                        style={{ left: '50%', top: '50%', width: overlayWidth, height: overlayHeight, transform: `translate(-50%, -50%) rotate(${screen.rotation}deg)` }}
+                        viewBox={`0 0 ${cols * cellW} ${rows * cellH}`}
+                        style={{ left: '50%', top: '50%', width: overlayWidth, height: overlayHeight, transform: `translate(-50%, -50%) rotate(${screen.rotation}deg)`, '--cell-unit': unit } as React.CSSProperties}
                       >
                         {isEditingPowerPath && screen.powerPlan.circuits.flatMap((circuit) => circuit.assignedCabinets.map((key) => {
                           const [col, row] = key.split('-').map(Number);
-                          return <rect key={`${circuit.id}-${key}`} x={col} y={row} width="1" height="1" fill="rgb(220 38 38 / .22)" />;
+                          return <rect key={`${circuit.id}-${key}`} x={col * cellW} y={row * cellH} width={cellW} height={cellH} fill="rgb(220 38 38 / .22)" />;
                         }))}
                         {screen.powerPlan.circuits.map((circuit) => {
                           const centers = circuit.assignedCabinets.map((key) => {
                             const [col, row] = key.split('-').map(Number);
-                            return { x: col + .5, y: row + .5 };
+                            return { x: (col + .5) * cellW, y: (row + .5) * cellH };
                           });
                           const points = centers.map((point) => `${point.x},${point.y}`).join(' ');
                           const overloaded = circuit.assignedCabinets.length * screenPreset.maxPowerW > usablePowerW;
@@ -2609,26 +2749,27 @@ export function TestPatternViewer({
                             <g key={circuit.id} className={`${activePowerCircuitId && activePowerCircuitId !== circuit.id ? 'is-dimmed ' : ''}${overloaded ? 'is-overloaded' : ''}`}>
                               <title>{circuit.name}: {overloaded ? 'превышение лимита силовой нагрузки на порт' : 'силовой путь в пределах лимита'}</title>
                               {centers.length > 1 && <>
-                                <polyline points={points} fill="none" stroke="rgba(255,255,255,.82)" strokeWidth=".105" strokeLinecap="round" strokeLinejoin="round" />
-                                <polyline points={points} fill="none" stroke={color} strokeWidth=".052" strokeLinecap="round" strokeLinejoin="round" />
+                                <polyline points={points} fill="none" stroke="rgba(255,255,255,.82)" strokeWidth={unit * .105} strokeLinecap="round" strokeLinejoin="round" />
+                                <polyline points={points} fill="none" stroke={color} strokeWidth={unit * .052} strokeLinecap="round" strokeLinejoin="round" />
                                 {centers.slice(0, -1).map((point, index) => {
                                   const next = centers[index + 1];
                                   const x = (point.x + next.x) / 2;
                                   const y = (point.y + next.y) / 2;
                                   const angle = Math.atan2(next.y - point.y, next.x - point.x) * 180 / Math.PI;
-                                  return <path key={`${circuit.id}-arrow-${index}`} d="M-.085,-.065 L.09,0 L-.085,.065 Z" transform={`translate(${x} ${y}) rotate(${angle})`} fill={color} stroke="rgba(255,255,255,.92)" strokeWidth=".018" strokeLinejoin="round" />;
+                                  const size = unit * .095;
+                                  return <path key={`${circuit.id}-arrow-${index}`} d={`M${-size * .9},${-size * .72} L${size * .95},0 L${-size * .9},${size * .72} Z`} transform={`translate(${x} ${y}) rotate(${angle})`} fill={color} stroke="rgba(255,255,255,.92)" strokeWidth={unit * .018} strokeLinejoin="round" />;
                                 })}
                               </>}
-                              {first && <><circle cx={first[0] + .5} cy={first[1] + .5} r=".14" fill="#fff" opacity=".92" /><circle cx={first[0] + .5} cy={first[1] + .5} r=".095" fill={color} /></>}
-                              {last && <><circle cx={last[0] + .5} cy={last[1] + .5} r=".14" fill="#fff" opacity=".92" /><circle cx={last[0] + .5} cy={last[1] + .5} r=".095" fill={color} /></>}
-                              {overloaded && last && <g className="power-overload-marker" transform={`translate(${last[0] + .82} ${last[1] + .18})`}><circle r=".16" fill="#facc15" stroke="#7f1d1d" strokeWidth=".035" /><text y=".075" textAnchor="middle">!</text></g>}
+                              {first && <><circle cx={(first[0] + .5) * cellW} cy={(first[1] + .5) * cellH} r={unit * .14} fill="#fff" opacity=".92" /><circle cx={(first[0] + .5) * cellW} cy={(first[1] + .5) * cellH} r={unit * .095} fill="#16a34a" /></>}
+                              {last && <><circle cx={(last[0] + .5) * cellW} cy={(last[1] + .5) * cellH} r={unit * .14} fill="#fff" opacity=".92" /><circle cx={(last[0] + .5) * cellW} cy={(last[1] + .5) * cellH} r={unit * .095} fill={color} /></>}
+                              {overloaded && last && <g className="power-overload-marker" transform={`translate(${(last[0] + .82) * cellW} ${(last[1] + .18) * cellH})`}><circle r={unit * .16} fill="#facc15" stroke="#7f1d1d" strokeWidth={unit * .035} /><text y={unit * .075} textAnchor="middle">!</text></g>}
                             </g>
                           );
                         })}
                         {isEditingPowerPath && Array.from({ length: rows }, (_, row) => Array.from({ length: cols }, (_, col) => {
                           const key = `${col}-${row}`;
                           if (screen.screenConfig.emptyCabinetKeys.includes(key)) return null;
-                          return <rect key={`power-hit-${key}`} className="data-path-hit" x={col} y={row} width="1" height="1" onPointerDown={(event) => drawPathPointerDown(event, screen.id, key)} onPointerEnter={(event) => drawPathPointerEnter(event, screen.id, key)} />;
+                          return <rect key={`power-hit-${key}`} className="data-path-hit" x={col * cellW} y={row * cellH} width={cellW} height={cellH} onPointerDown={(event) => drawPathPointerDown(event, screen.id, key)} onPointerEnter={(event) => drawPathPointerEnter(event, screen.id, key)} />;
                         }))}
                       </svg>
                     );
@@ -2651,7 +2792,7 @@ export function TestPatternViewer({
               )}
               {nearestMeasurement && (
                 <div className="distance-measurement" style={{ left: nearestMeasurement.x, top: nearestMeasurement.y }}>
-                  {nearestMeasurement.millimeters.toFixed(0)} мм
+                  {nearestMeasurement.pixels.toFixed(0)} px
                 </div>
               )}
               <canvas ref={canvasRef} className="screen-render-buffer" aria-hidden="true" />

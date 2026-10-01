@@ -176,10 +176,6 @@ button:hover { border-color: var(--accent); color: #fff; }
 .pattern-controls > button { width: 100%; margin-bottom: 8px; color: var(--on-accent); font-weight: 700; border-color: var(--accent); background: var(--accent); }
 .pattern-controls > .edit-screen-button { color: var(--fg); border-color: var(--line); background: var(--panel-2); }
 .pattern-controls > .edit-screen-button.is-active { color: var(--on-accent); border-color: var(--warn); background: var(--warn); }
-.project-export-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
-.project-export-panel legend, .project-export-panel .field-hint { grid-column: 1 / -1; }
-.project-export-panel button { min-width: 0; padding: 8px 6px; font-size: 11px; }
-.project-export-panel button:disabled { opacity: .4; cursor: default; }
 .add-screen-left { width: 100%; margin-top: auto; color: var(--on-accent); font-weight: 700; border-color: var(--accent); background: var(--accent); }
 .add-screen-left:disabled { opacity: .4; cursor: default; }
 .empty-preset-state { min-width: 0; min-height: 0; display: grid; place-items: center; padding: 32px; background: var(--bg); }
@@ -188,6 +184,7 @@ button:hover { border-color: var(--accent); color: #fff; }
 .empty-preset-state p { margin: 0 0 18px; color: var(--muted); }
 .empty-preset-state button { color: var(--on-accent); font-weight: 700; border-color: var(--accent); background: var(--accent); }
 .field-hint { margin: 9px 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.field-hint.is-warning { color: var(--warn); }
 .result-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .result-table td { padding: 6px 0; border-bottom: 1px solid var(--line); color: var(--muted); }
 .result-table td:last-child { text-align: right; color: var(--fg); font-weight: 700; }
@@ -243,8 +240,8 @@ button:hover { border-color: var(--accent); color: #fff; }
 .data-path-overlay g { transition: opacity .12s ease; }
 .data-path-overlay g.is-dimmed { opacity: .12; }
 .data-path-overlay.is-editing { z-index: 6; pointer-events: auto; cursor: crosshair; }
-.data-path-hit { fill: transparent; stroke: rgba(255,255,255,.12); stroke-width: .015; pointer-events: all; }
-.data-path-hit:hover { fill: rgba(255,255,255,.18); stroke: #fff; stroke-width: .035; }
+.data-path-hit { fill: transparent; stroke: rgba(255,255,255,.12); stroke-width: calc(var(--cell-unit, 1) * .015); pointer-events: all; }
+.data-path-hit:hover { fill: rgba(255,255,255,.18); stroke: #fff; stroke-width: calc(var(--cell-unit, 1) * .035); }
 .placed-screen-frame.is-selected { z-index: 3; }
 .placed-screen-frame.is-selected::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -296,6 +293,8 @@ button:hover { border-color: var(--accent); color: #fff; }
 .auto-routing-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
 .auto-routing-summary span { padding: 6px 4px; color: var(--muted); text-align: center; border: 1px solid var(--line); border-radius: 4px; font-size: 9px; background: var(--panel); }
 .auto-routing-summary b { display: block; margin-top: 2px; color: var(--dl-ok-text); font-size: 12px; }
+.auto-routing-summary span.is-overloaded { border-color: var(--stop); }
+.auto-routing-summary span.is-overloaded b { color: var(--stop); }
 .auto-routing-panel > button { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
 .auto-routing-preview { display: grid; gap: 7px; padding-top: 3px; }
 .auto-routing-grid { display: grid; gap: 2px; padding: 5px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
@@ -392,7 +391,7 @@ button:hover { border-color: var(--accent); color: #fff; }
 .power-path-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .phase-loads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .phase-loads span { padding: 5px; color: #bfdbfe; border: 1px solid var(--line); border-radius: 4px; background: #172033; font-size: 10px; text-align: center; }
-.power-circuit-list { display: grid; gap: 4px; max-height: 190px; overflow-y: auto; }
+.power-circuit-list { display: grid; gap: 4px; }
 .power-circuit-list button { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-left: 4px solid var(--circuit-color); text-align: left; }
 .power-circuit-list button span { color: var(--muted); font-size: 9px; }
 .power-circuit-list button .circuit-capacity { line-height: 1.35; text-align: right; }
@@ -406,8 +405,8 @@ button:hover { border-color: var(--accent); color: #fff; }
 .power-circuit-list button.is-active .circuit-capacity em { color: rgba(7,20,23,.78); }
 .power-circuit-list button.is-active .circuit-capacity em.is-overloaded { color: #7f1d1d; }
 .power-circuit-list button.is-overloaded { outline: 2px solid var(--stop); outline-offset: -2px; }
-.power-path-overlay g.is-overloaded polyline { stroke: var(--stop); filter: drop-shadow(0 0 .06px rgba(239,68,68,.95)); }
-.power-overload-marker text { fill: #7f1d1d; font-size: .22px; font-weight: 900; }
+.power-path-overlay g.is-overloaded polyline { stroke: var(--stop); filter: drop-shadow(0 0 calc(var(--cell-unit, 1) * .06px) rgba(239,68,68,.95)); }
+.power-overload-marker text { fill: #7f1d1d; font-size: calc(var(--cell-unit, 1) * .22px); font-weight: 900; }
 .power-cabinet-grid { display: grid; gap: 3px; padding: 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
 .power-cabinet-grid button, .power-cabinet-grid .is-empty { min-width: 0; aspect-ratio: 1.35; padding: 2px; font-size: 9px; }
 .power-cabinet-grid button { overflow: hidden; color: var(--fg); border-color: var(--line); background: var(--panel-2); }
@@ -527,8 +526,6 @@ button { padding: 6px 8px; border-radius: 5px; font-size: 11px; }
 .field-hint { margin: 5px 0; font-size: 9px; line-height: 1.35; }
 .result-table { font-size: 10px; }
 .result-table td { padding: 4px 0; }
-.project-export-panel { gap: 4px; margin-top: 5px; }
-.project-export-panel button { padding: 5px 4px; font-size: 9px; }
 .add-screen-left { min-height: 30px; }
 
 .workspace-title { gap: 8px; padding: 7px 10px; }

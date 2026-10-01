@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import type { CabinetPreset, PowerCircuit, PowerPhase, PowerPlan } from '@shared/types';
 import type { ScreenConfig } from './PowerCalculator';
 import { POWER_PORT_MAX_W, usablePowerPerPortW } from '@shared/powerLimits';
+import { generateCabinetOrder } from '@shared/autoRouting';
 
 interface PowerPathPlannerProps {
   plan?: PowerPlan;
@@ -30,14 +31,11 @@ function defaultPlan(): PowerPlan {
 }
 
 function cabinetKeys(config: ScreenConfig): string[] {
-  const keys: string[] = [];
-  for (let row = 0; row < config.rows; row += 1) {
-    for (let col = 0; col < config.cols; col += 1) {
-      const key = `${col}-${row}`;
-      if (!config.emptyCabinetKeys.includes(key)) keys.push(key);
-    }
-  }
-  return keys;
+  // "Змейкой" (чётные строки слева направо, нечётные — справа налево), а не
+  // простым растром — иначе переход на следующую строку всегда идёт через
+  // весь экран (из правого конца строки в левый), вместо шага к соседнему
+  // кабинету снизу, и расходует лишний кабель.
+  return generateCabinetOrder(config, 'snake-rows', 'top-left');
 }
 
 export function PowerPathPlanner({
@@ -76,19 +74,6 @@ export function PowerPathPlanner({
     onEditingChange(true);
   }
 
-  function autoBalance(): void {
-    const count = Math.max(1, Math.ceil(keys.length * preset.maxPowerW / Math.max(.1, usablePowerW)));
-    const circuits: PowerCircuit[] = Array.from({ length: count }, (_, index) => ({
-      id: crypto.randomUUID(),
-      name: `Цепь ${index + 1}`,
-      phase: value.phases === 3 ? PHASES[index % 3] : 'L1',
-      assignedCabinets: []
-    }));
-    keys.forEach((key, index) => circuits[index % circuits.length].assignedCabinets.push(key));
-    onChange({ ...value, circuits });
-    onActiveCircuitChange(circuits[0]?.id ?? null);
-  }
-
   function clearCircuits(): void {
     onChange({ ...value, circuits: value.circuits.map((circuit) => ({ ...circuit, assignedCabinets: [] })) });
   }
@@ -112,8 +97,8 @@ export function PowerPathPlanner({
         <label>Запас, %<input type="number" min={0} max={90} value={value.safetyMarginPercent} onChange={(event) => updateSettings({ safetyMarginPercent: Number(event.target.value) })} /></label>
         <label>Сеть<select value={value.phases} onChange={(event) => updateSettings({ phases: Number(event.target.value) as 1 | 3 })}><option value={1}>1 фаза</option><option value={3}>3 фазы</option></select></label>
       </div>
+      <p className="field-hint">Для автоматического построения силовых цепей — с превью и выбором лимита кабинетов на линию — используйте «Автоматическая схема» выше. Здесь можно только донастроить цепи вручную.</p>
       <div className="power-path-actions">
-        <button type="button" onClick={autoBalance}>Автобаланс</button>
         <button type="button" onClick={addCircuit}>+ Цепь</button>
         <button type="button" onClick={clearCircuits}>Очистить</button>
       </div>
