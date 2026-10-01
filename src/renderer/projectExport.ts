@@ -81,7 +81,7 @@ export function buildCsvFiles(screens: ExportScreen[]): Record<string, string> {
         return port.assignedCabinets.map((key, index) => {
           const [col, row] = key.split('-').map(Number);
           return [
-            screen.name, `${screen.processor!.brand} ${screen.processor!.model}`,
+            screen.name, `${screen.processor!.brand} ${port.controllerName ?? screen.processor!.model}`,
             port.sourcePortName || port.portId, index + 1, key, col + 1, row + 1,
             portPixels, port.maxPixels
           ];

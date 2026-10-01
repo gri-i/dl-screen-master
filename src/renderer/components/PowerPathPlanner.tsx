@@ -74,6 +74,25 @@ export function PowerPathPlanner({
     onEditingChange(true);
   }
 
+  // Типовая силовая коробка: вход 3ф 32А (CEE), выход — 6 розеток 1ф 16А,
+  // по 2 на каждую фазу — так распределительные коробки такого типа устроены
+  // физически. "Автомат" в этом плане — это номинал ОТХОДЯЩЕЙ линии (а не
+  // вводного автомата коробки), поэтому при добавлении коробки задаём 16А и
+  // 3 фазы на весь план: это соответствует маркировке выходных розеток и
+  // уже существующим цепям, которые тоже защищены отходящими автоматами.
+  function addPowerDistroBox(): void {
+    const startIndex = value.circuits.length;
+    const circuits: PowerCircuit[] = Array.from({ length: 6 }, (_, index) => ({
+      id: crypto.randomUUID(),
+      name: `Цепь ${startIndex + index + 1}`,
+      phase: PHASES[index % 3],
+      assignedCabinets: []
+    }));
+    onChange({ ...value, phases: 3, circuitBreakerAmps: 16, circuits: [...value.circuits, ...circuits] });
+    onActiveCircuitChange(circuits[0].id);
+    onEditingChange(true);
+  }
+
   function clearCircuits(): void {
     onChange({ ...value, circuits: value.circuits.map((circuit) => ({ ...circuit, assignedCabinets: [] })) });
   }
@@ -100,6 +119,7 @@ export function PowerPathPlanner({
       <p className="field-hint">Для автоматического построения силовых цепей — с превью и выбором лимита кабинетов на линию — используйте «Автоматическая схема» выше. Здесь можно только донастроить цепи вручную.</p>
       <div className="power-path-actions">
         <button type="button" onClick={addCircuit}>+ Цепь</button>
+        <button type="button" onClick={addPowerDistroBox} title="Добавить 6 цепей по 16А (2 на фазу) — типовая коробка с вводом 3ф 32А">+ Коробка 32А/3ф (6×16А)</button>
         <button type="button" onClick={clearCircuits}>Очистить</button>
       </div>
       {value.circuits.length > 0 && (

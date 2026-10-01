@@ -363,7 +363,7 @@ export function TestPatternViewer({
   const [isEditingPowerPath, setIsEditingPowerPath] = useState(false);
   const [newControllerModel, setNewControllerModel] = useState<string>(NOVASTAR_CONTROLLERS[0].model);
   const [newControllerSendingCards, setNewControllerSendingCards] = useState(1);
-  const [isChangingController, setIsChangingController] = useState(false);
+  const [controllerFormMode, setControllerFormMode] = useState<'change' | 'add' | null>(null);
   const [pathPanelMode, setPathPanelMode] = useState<'data' | 'power'>('data');
   const [autoRoutingPattern, setAutoRoutingPattern] = useState<RoutingPattern>('snake-rows');
   const [autoRoutingCorner, setAutoRoutingCorner] = useState<StartCorner>('top-left');
@@ -973,7 +973,7 @@ export function TestPatternViewer({
       : screen));
     setActiveDataPortId(processor.ports[0]?.portId ?? null);
     setIsEditingDataPath(true);
-    setIsChangingController(false);
+    setControllerFormMode(null);
   }
 
   function startChangingController(processor: Processor): void {
@@ -986,37 +986,85 @@ export function TestPatternViewer({
       const cardCount = new Set(processor.ports.map((port) => port.controllerId)).size;
       setNewControllerSendingCards(Math.min(Math.max(1, cardCount), template.maxSendingCards));
     }
-    setIsChangingController(true);
+    setControllerFormMode('change');
+  }
+
+  function startAddingController(): void {
+    setNewControllerModel(NOVASTAR_CONTROLLERS[0].model);
+    setNewControllerSendingCards(1);
+    setControllerFormMode('add');
+  }
+
+  // Нумерует "sending card" дополнительного контроллера начиная со следующего
+  // числа после уже занятых controllerId — иначе при добавлении второго
+  // контроллера той же модели оба получили бы одинаковые controllerId/portId
+  // ("Sending card 1 · Port 1"), и UI (группировка по card, React key) не
+  // смог бы отличить порты разных физических контроллеров друг от друга.
+  function nextCardNumberOffset(processor?: Processor): number {
+    const numbers = (processor?.ports ?? [])
+      .map((port) => Number(port.controllerId?.match(/\d+/)?.[0]))
+      .filter((value) => Number.isFinite(value));
+    return numbers.length ? Math.max(...numbers) : 0;
+  }
+
+  function buildNovaStarPorts(model: string, requestedCardCount: number, cardNumberOffset: number): ProcessorPort[] {
+    const template = NOVASTAR_CONTROLLERS.find((controller) => controller.model === model);
+    if (!template) return [];
+    const cardCount = template.maxSendingCards
+      ? Math.min(Math.max(1, requestedCardCount), template.maxSendingCards)
+      : 1;
+    const totalPorts = template.ports * cardCount;
+    // Нумеруем sending-карту и порт на ней по отдельности (а не один общий
+    // счётчик 1..totalPorts) — иначе при нескольких sending-картах (H9/H15)
+    // controllerId всегда был бы "1", и в подписи S{card}P{port} на схеме
+    // карты было бы невозможно различить.
+    return Array.from({ length: totalPorts }, (_, index) => {
+      const cardNumber = cardNumberOffset + Math.floor(index / template.ports) + 1;
+      const portInCard = (index % template.ports) + 1;
+      return {
+        portId: `Sending card ${cardNumber} · Port ${portInCard}`,
+        controllerId: String(cardNumber),
+        controllerName: template.model,
+        sourcePortName: String(portInCard),
+        maxPixels: template.maxPixelsPerPort,
+        assignedCabinets: []
+      };
+    });
   }
 
   function createNovaStarProcessor(): Processor | null {
-    const template = NOVASTAR_CONTROLLERS.find((controller) => controller.model === newControllerModel);
-    if (!template) return null;
-    const cardCount = template.maxSendingCards
-      ? Math.min(Math.max(1, newControllerSendingCards), template.maxSendingCards)
-      : 1;
-    const totalPorts = template.ports * cardCount;
-    return {
-      id: crypto.randomUUID(),
-      brand: 'NovaStar',
-      model: template.model,
-      // Нумеруем sending-карту и порт на ней по отдельности (а не один общий
-      // счётчик 1..totalPorts) — иначе при нескольких sending-картах (H9/H15)
-      // controllerId всегда был бы "1", и в подписи S{card}P{port} на схеме
-      // карты было бы невозможно различить.
-      ports: Array.from({ length: totalPorts }, (_, index) => {
-        const cardNumber = Math.floor(index / template.ports) + 1;
-        const portInCard = (index % template.ports) + 1;
-        return {
-          portId: cardCount > 1 ? `Sending card ${cardNumber} · Port ${portInCard}` : `Port ${portInCard}`,
-          controllerId: String(cardNumber),
-          controllerName: template.model,
-          sourcePortName: String(portInCard),
-          maxPixels: template.maxPixelsPerPort,
-          assignedCabinets: []
-        };
-      })
-    };
+    const ports = buildNovaStarPorts(newControllerModel, newControllerSendingCards, 0);
+    if (!ports.length) return null;
+    return { id: crypto.randomUUID(), brand: 'NovaStar', model: newControllerModel, ports };
+  }
+
+  function addAdditionalController(): void {
+    const processor = selectedDataScreen?.processor;
+    if (!selectedPlacedScreenId || !processor) return;
+    const newPorts = buildNovaStarPorts(newControllerModel, newControllerSendingCards, nextCardNumberOffset(processor));
+    if (!newPorts.length) return;
+    rememberState();
+    setPlacedScreens((current) => current.map((screen) => screen.id === selectedPlacedScreenId && screen.processor
+      ? { ...screen, processor: { ...screen.processor, ports: [...screen.processor.ports, ...newPorts] } }
+      : screen));
+    setActiveDataPortId(newPorts[0].portId);
+    setIsEditingDataPath(true);
+    setControllerFormMode(null);
+  }
+
+  /** Отображаемое название контроллера(ов) экрана — с учётом того, что после
+   * «Добавить контроллер» на экране может быть несколько разных моделей/юнитов. */
+  function controllerSummaryLabel(processor: Processor): string {
+    const unitsByModel = new Map<string, Set<string>>();
+    for (const port of processor.ports) {
+      const model = port.controllerName ?? processor.model;
+      const units = unitsByModel.get(model) ?? new Set<string>();
+      units.add(port.controllerId ?? '');
+      unitsByModel.set(model, units);
+    }
+    return [...unitsByModel.entries()]
+      .map(([model, units]) => units.size > 1 ? `${model} ×${units.size}` : model)
+      .join(' + ');
   }
 
   function editDataPathCabinet(screenId: string, cabinetKey: string, truncateExisting = true): void {
@@ -2429,22 +2477,34 @@ export function TestPatternViewer({
               </div>
             ) : (
               <>
-                <strong>{selectedDataScreen.processor.brand} {selectedDataScreen.processor.model}</strong>
+                <strong>{selectedDataScreen.processor.brand} · {controllerSummaryLabel(selectedDataScreen.processor)}</strong>
                 <div className="data-path-actions">
                   <button type="button" className={isEditingDataPath ? 'is-active' : ''} onClick={toggleDataPathEditor}>
                     {isEditingDataPath ? 'Завершить редактирование трасс' : 'Редактировать трассы'}
                   </button>
                   <button
                     type="button"
-                    className={isChangingController ? 'is-active' : ''}
-                    onClick={() => (isChangingController ? setIsChangingController(false) : startChangingController(selectedDataScreen.processor!))}
+                    className={controllerFormMode === 'change' ? 'is-active' : ''}
+                    onClick={() => (controllerFormMode === 'change' ? setControllerFormMode(null) : startChangingController(selectedDataScreen.processor!))}
                   >
                     Сменить контроллер
                   </button>
+                  <button
+                    type="button"
+                    className={controllerFormMode === 'add' ? 'is-active' : ''}
+                    onClick={() => (controllerFormMode === 'add' ? setControllerFormMode(null) : startAddingController())}
+                    title="Добавить ещё один контроллер к этому экрану, когда портов текущего не хватает"
+                  >
+                    Добавить контроллер
+                  </button>
                 </div>
-                {isChangingController && (
+                {controllerFormMode && (
                   <div className="data-controller-create">
-                    <p className="field-hint is-warning">Смена контроллера пересоздаёт все порты — уже назначенные трассы на этом экране будут сброшены.</p>
+                    <p className="field-hint is-warning">
+                      {controllerFormMode === 'change'
+                        ? 'Смена контроллера пересоздаёт все порты — уже назначенные трассы на этом экране будут сброшены.'
+                        : 'Новые порты добавятся к уже существующим — ранее назначенные трассы не изменятся.'}
+                    </p>
                     <label>
                       Контроллер
                       <select value={newControllerModel} onChange={(event) => setNewControllerModel(event.target.value)}>
@@ -2468,8 +2528,8 @@ export function TestPatternViewer({
                       ) : null;
                     })()}
                     <div className="data-path-actions">
-                      <button type="button" onClick={addNovaStarController}>Применить</button>
-                      <button type="button" onClick={() => setIsChangingController(false)}>Отмена</button>
+                      <button type="button" onClick={controllerFormMode === 'change' ? addNovaStarController : addAdditionalController}>Применить</button>
+                      <button type="button" onClick={() => setControllerFormMode(null)}>Отмена</button>
                     </div>
                   </div>
                 )}
