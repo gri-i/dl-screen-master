@@ -35,23 +35,28 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
   const [form, setForm] = useState(INITIAL_FORM);
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [status, setStatus] = useState('');
+  // Ширина/высота в мм по умолчанию подставляются как Разрешение × Шаг
+  // пикселя (самый частый случай), но кабинет может иметь рамку/крепёж,
+  // из-за которых физический габарит больше пиксельной области — поэтому
+  // как только пользователь редактирует ширину/высоту вручную, автоподстановка
+  // для этого поля отключается и дальнейшие правки разрешения/шага его не трогают.
+  const [dimensionsTouched, setDimensionsTouched] = useState({ width: false, height: false });
 
   useEffect(() => setPresets(initialPresets), [initialPresets]);
 
   function updateField(field: keyof typeof INITIAL_FORM, value: string): void {
+    if (field === 'widthMm' || field === 'heightMm') {
+      setDimensionsTouched((current) => ({ ...current, [field === 'widthMm' ? 'width' : 'height']: true }));
+    }
     setForm((current) => {
       const next = {
         ...current,
         [field]: field === 'brand' || field === 'model' || field === 'receiverCardName' ? value : Number(value)
       };
-      // Ширина/высота в мм не вводятся независимо от разрешения и шага пикселя —
-      // иначе для кабинета с непрямоугольным (несовпадающим) пикселем экран на
-      // холсте (сайзинг по мм) и его картинка (рендер по px) разъедутся по
-      // соотношению сторон, и любой текст на маске визуально растянется.
-      if (field === 'resolutionX' || field === 'pixelPitchMm') {
+      if (!dimensionsTouched.width && (field === 'resolutionX' || field === 'pixelPitchMm')) {
         next.widthMm = Number((next.resolutionX * next.pixelPitchMm).toFixed(2));
       }
-      if (field === 'resolutionY' || field === 'pixelPitchMm') {
+      if (!dimensionsTouched.height && (field === 'resolutionY' || field === 'pixelPitchMm')) {
         next.heightMm = Number((next.resolutionY * next.pixelPitchMm).toFixed(2));
       }
       return next;
@@ -93,6 +98,7 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
     }
     setForm(INITIAL_FORM);
     setEditingPresetId(null);
+    setDimensionsTouched({ width: false, height: false });
     setStatus(editingPresetId ? 'Кабинет обновлён' : 'Кабинет добавлен');
   }
 
@@ -101,11 +107,8 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
     setForm({
       brand: preset.brand,
       model: preset.model,
-      // Пересчитываем из разрешения × шаг пикселя, а не берём сохранённые
-      // значения напрямую — у старых пресетов, добавленных до этого фикса,
-      // они могли разойтись с реальным пикселем кабинета.
-      widthMm: Number((preset.resolutionX * preset.pixelPitchMm).toFixed(2)),
-      heightMm: Number((preset.resolutionY * preset.pixelPitchMm).toFixed(2)),
+      widthMm: preset.widthMm,
+      heightMm: preset.heightMm,
       pixelPitchMm: preset.pixelPitchMm,
       resolutionX: preset.resolutionX,
       resolutionY: preset.resolutionY,
@@ -114,6 +117,10 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
       avgPowerW: preset.avgPowerW,
       receiverCardName: preset.receiverCardName ?? ''
     });
+    // Сохранённые мм уже могут отличаться от Разрешение × Шаг (рамка,
+    // ручная правка) — считаем их осознанным значением и не перезаписываем
+    // при последующих правках разрешения/шага пикселя в этой сессии редактирования.
+    setDimensionsTouched({ width: true, height: true });
     setStatus(`Редактирование: ${preset.brand} ${preset.model}`);
   }
 
@@ -244,14 +251,14 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
           <label>Шаг пикселя, мм<input type="number" step="0.1" value={form.pixelPitchMm} onChange={(e) => updateField('pixelPitchMm', e.target.value)} /></label>
           <label>Разрешение X, px<input type="number" value={form.resolutionX} onChange={(e) => updateField('resolutionX', e.target.value)} /></label>
           <label>Разрешение Y, px<input type="number" value={form.resolutionY} onChange={(e) => updateField('resolutionY', e.target.value)} /></label>
-          <label>Ширина, мм<input type="number" value={form.widthMm} readOnly title="Считается как Разрешение X × Шаг пикселя" /></label>
-          <label>Высота, мм<input type="number" value={form.heightMm} readOnly title="Считается как Разрешение Y × Шаг пикселя" /></label>
+          <label>Ширина, мм<input type="number" value={form.widthMm} onChange={(e) => updateField('widthMm', e.target.value)} title="По умолчанию = Разрешение X × Шаг пикселя, можно задать вручную (напр. с учётом рамки)" /></label>
+          <label>Высота, мм<input type="number" value={form.heightMm} onChange={(e) => updateField('heightMm', e.target.value)} title="По умолчанию = Разрешение Y × Шаг пикселя, можно задать вручную (напр. с учётом рамки)" /></label>
           <label>Вес, кг<input type="number" step="0.1" value={form.weightKg} onChange={(e) => updateField('weightKg', e.target.value)} /></label>
           <label>Макс. мощность, Вт<input type="number" value={form.maxPowerW} onChange={(e) => updateField('maxPowerW', e.target.value)} /></label>
           <label>Средняя мощность, Вт<input type="number" value={form.avgPowerW} onChange={(e) => updateField('avgPowerW', e.target.value)} /></label>
           <div className="preset-form-actions">
             <button type="submit">{editingPresetId ? 'Сохранить изменения' : 'Добавить кабинет'}</button>
-            {editingPresetId && <button type="button" onClick={() => { setEditingPresetId(null); setForm(INITIAL_FORM); setStatus(''); }}>Отмена</button>}
+            {editingPresetId && <button type="button" onClick={() => { setEditingPresetId(null); setForm(INITIAL_FORM); setDimensionsTouched({ width: false, height: false }); setStatus(''); }}>Отмена</button>}
           </div>
         </form>
       </section>
