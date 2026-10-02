@@ -182,15 +182,15 @@ const ZOOM_STEP = 0.25;
 const WORKSPACE_PX_PER_PIXEL = 1;
 
 // Для H9/H15 ports/maxPixelsPerPort — характеристики ОДНОЙ сендинг-карты
-// H_20xRJ45; maxSendingCards — сколько таких карт вмещает шасси. Итоговое
+// H_16xRJ45; maxSendingCards — сколько таких карт вмещает шасси. Итоговое
 // число портов контроллера = ports × выбранное количество карт (см. UI
 // «Sending-карт» и createNovaStarProcessor).
 const NOVASTAR_CONTROLLERS: { model: string; ports: number; maxPixelsPerPort: number; maxSendingCards?: number }[] = [
   { model: 'MCTRL4K', ports: 16, maxPixelsPerPort: 650000 },
   { model: 'MCTRL660', ports: 4, maxPixelsPerPort: 650000 },
   { model: 'MCTRL660 Pro', ports: 6, maxPixelsPerPort: 650000 },
-  { model: 'H9', ports: 20, maxPixelsPerPort: 650000, maxSendingCards: 5 },
-  { model: 'H15', ports: 20, maxPixelsPerPort: 650000, maxSendingCards: 10 }
+  { model: 'H9', ports: 16, maxPixelsPerPort: 650000, maxSendingCards: 5 },
+  { model: 'H15', ports: 16, maxPixelsPerPort: 650000, maxSendingCards: 10 }
 ];
 
 function screenDisplaySize(
