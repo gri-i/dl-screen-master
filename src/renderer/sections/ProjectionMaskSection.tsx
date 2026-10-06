@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { OverlayPosition } from '@shared/types';
+import { useLanguage } from '../i18n/context';
 
 type PatternMode = 'pixel' | 'metric';
 type MetricOrigin = 'top-left' | 'top-right' | 'center' | 'bottom-left' | 'bottom-right';
@@ -70,22 +71,28 @@ const DEFAULT_SETTINGS: PixelPatternSettings = {
   logoOpacityPercent: 100
 };
 
-const LOGO_POSITION_LABELS: Record<OverlayPosition, string> = {
-  'top-left': 'Сверху слева',
-  'top-center': 'Сверху по центру',
-  'top-right': 'Сверху справа',
-  'bottom-left': 'Снизу слева',
-  'bottom-center': 'Снизу по центру',
-  'bottom-right': 'Снизу справа'
-};
+type Translator = (key: string, vars?: Record<string, string | number>) => string;
 
-const METRIC_ORIGIN_LABELS: Record<MetricOrigin, string> = {
-  'top-left': 'Сверху слева',
-  'top-right': 'Сверху справа',
-  center: 'По центру',
-  'bottom-left': 'Снизу слева',
-  'bottom-right': 'Снизу справа'
-};
+function logoPositionLabels(t: Translator): Record<OverlayPosition, string> {
+  return {
+    'top-left': t('proj.originTopLeft'),
+    'top-center': t('proj.originTopCenter'),
+    'top-right': t('proj.originTopRight'),
+    'bottom-left': t('proj.originBottomLeft'),
+    'bottom-center': t('proj.originBottomCenter'),
+    'bottom-right': t('proj.originBottomRight')
+  };
+}
+
+function metricOriginLabels(t: Translator): Record<MetricOrigin, string> {
+  return {
+    'top-left': t('proj.originTopLeft'),
+    'top-right': t('proj.originTopRight'),
+    center: t('proj.originCenter'),
+    'bottom-left': t('proj.originBottomLeft'),
+    'bottom-right': t('proj.originBottomRight')
+  };
+}
 
 const METRIC_ORIGIN_COLOR = '#ef4444';
 
@@ -499,6 +506,7 @@ function drawMetricPattern(
 }
 
 export function ProjectionMaskSection(): JSX.Element {
+  const { t, lang } = useLanguage();
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [logo, setLogo] = useState<HTMLImageElement | null>(null);
   const [logoName, setLogoName] = useState('');
@@ -670,11 +678,11 @@ export function ProjectionMaskSection(): JSX.Element {
   async function exportPdf(): Promise<void> {
     if (isExportingPdf) return;
     setIsExportingPdf(true);
-    setExportStatus('Подготовка PDF…');
+    setExportStatus(t('proj.pdfPreparing'));
     try {
-      if (patternWidth <= 0 || patternHeight <= 0) throw new Error('Некорректный размер полотна.');
+      if (patternWidth <= 0 || patternHeight <= 0) throw new Error(t('proj.pdfErrInvalidSize'));
       if (settings.mode === 'pixel' && (settings.overlapX >= settings.displayWidth || settings.overlapY >= settings.displayHeight)) {
-        throw new Error('Перекрытие должно быть меньше разрешения проектора.');
+        throw new Error(t('proj.pdfErrOverlap'));
       }
       const escape = (value: string): string => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       const canvas = document.createElement('canvas');
@@ -682,18 +690,18 @@ export function ProjectionMaskSection(): JSX.Element {
       const draw = settings.mode === 'metric' ? drawMetricPattern : drawPixelPattern;
       draw(canvas, settings, Math.max(1, Math.round(patternWidth * scale)), Math.max(1, Math.round(patternHeight * scale)), logo);
       const mask = canvas.toDataURL('image/png');
-      if (!mask.startsWith('data:image/png;base64,')) throw new Error('Не удалось создать маску для PDF.');
+      if (!mask.startsWith('data:image/png;base64,')) throw new Error(t('proj.pdfErrMaskFailed'));
 
       const infoRows = settings.mode === 'metric'
-        ? `<tr><th>Размер полотна, м</th><td>${trimNumber(settings.metricWidthM)} × ${trimNumber(settings.metricHeightM)}</td></tr>
-        <tr><th>Разрешение, px</th><td>${patternWidth} × ${patternHeight}</td></tr>
-        <tr><th>Плотность, px/м</th><td>${metricResolution.pixelsPerMeter.toFixed(1)}</td></tr>
-        <tr><th>Шаг сетки, м</th><td>${trimNumber(settings.metricGridSizeM)}</td></tr>
-        <tr><th>Точка отсчёта</th><td>${METRIC_ORIGIN_LABELS[settings.metricOrigin]}</td></tr>`
-        : `<tr><th>Общее разрешение с учётом перекрытий, px</th><td>${patternWidth} × ${patternHeight}</td></tr>
-        <tr><th>Разрешение каждого проектора, px</th><td>${settings.displayWidth} × ${settings.displayHeight}</td></tr>
-        <tr><th>Раскладка / количество проекторов</th><td>${settings.columns} × ${settings.rows} / ${settings.columns * settings.rows}</td></tr>
-        <tr><th>Перекрытие соседних проекторов X / Y, px</th><td>${settings.columns > 1 ? settings.overlapX : 0} / ${settings.rows > 1 ? settings.overlapY : 0}</td></tr>`;
+        ? `<tr><th>${t('proj.pdf.canvasSizeM')}</th><td>${trimNumber(settings.metricWidthM)} × ${trimNumber(settings.metricHeightM)}</td></tr>
+        <tr><th>${t('proj.pdf.resolutionPx')}</th><td>${patternWidth} × ${patternHeight}</td></tr>
+        <tr><th>${t('proj.pdf.densityPxM')}</th><td>${metricResolution.pixelsPerMeter.toFixed(1)}</td></tr>
+        <tr><th>${t('proj.pdf.gridStepM')}</th><td>${trimNumber(settings.metricGridSizeM)}</td></tr>
+        <tr><th>${t('proj.pdf.originPoint')}</th><td>${metricOriginLabels(t)[settings.metricOrigin]}</td></tr>`
+        : `<tr><th>${t('proj.pdf.totalResolutionPx')}</th><td>${patternWidth} × ${patternHeight}</td></tr>
+        <tr><th>${t('proj.pdf.projectorResolutionPx')}</th><td>${settings.displayWidth} × ${settings.displayHeight}</td></tr>
+        <tr><th>${t('proj.pdf.layoutCount')}</th><td>${settings.columns} × ${settings.rows} / ${settings.columns * settings.rows}</td></tr>
+        <tr><th>${t('proj.pdf.overlapXY')}</th><td>${settings.columns > 1 ? settings.overlapX : 0} / ${settings.rows > 1 ? settings.overlapY : 0}</td></tr>`;
 
       const projectors = settings.mode === 'pixel' ? Array.from({ length: settings.rows }, (_, row) =>
         Array.from({ length: settings.columns }, (_, column) => `<tr><td>P${row * settings.columns + column + 1}</td><td>${row + 1}</td><td>${column + 1}</td><td>${settings.displayWidth} × ${settings.displayHeight}</td><td>${column * (settings.displayWidth - settings.overlapX)}</td><td>${row * (settings.displayHeight - settings.overlapY)}</td></tr>`).join('')
@@ -785,7 +793,7 @@ export function ProjectionMaskSection(): JSX.Element {
             {!logo && <p className="field-hint">Загрузите логотип выше, чтобы применить эти настройки.</p>}
             <label>Позиция
               <select value={settings.logoPosition} onChange={(event) => update('logoPosition', event.target.value as OverlayPosition)}>
-                {Object.entries(LOGO_POSITION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {Object.entries(logoPositionLabels(t)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
             <label>Ширина, %<input type="number" min={1} max={100} value={settings.logoScalePercent} onChange={(event) => update('logoScalePercent', clamp(Number(event.target.value), 1, 100))} /></label>

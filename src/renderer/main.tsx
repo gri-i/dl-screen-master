@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
+import { DICT, LanguageProvider } from './i18n';
 
 try {
   const storedSkin = window.localStorage.getItem('dl-screen-master-ui-skin');
@@ -11,6 +12,8 @@ try {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <LanguageProvider dict={DICT}>
+      <App />
+    </LanguageProvider>
   </React.StrictMode>
 );

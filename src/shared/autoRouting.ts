@@ -92,7 +92,8 @@ export function generatePowerPlan(
   source: Omit<PowerPlan, 'circuits'>,
   order: string[],
   cabinetMaxPowerW: number,
-  maxCabinetsPerCircuit?: number
+  maxCabinetsPerCircuit?: number,
+  circuitName: (n: number) => string = (n) => `Цепь ${n}`
 ): PowerPlan {
   const usablePowerW = usablePowerPerPortW(source.voltage, source.circuitBreakerAmps, source.safetyMarginPercent, source.powerFactor);
   const autoCapacity = Math.max(1, Math.floor(usablePowerW / Math.max(.001, cabinetMaxPowerW)));
@@ -101,7 +102,7 @@ export function generatePowerPlan(
   const phases: PowerPhase[] = source.phases === 3 ? ['L1', 'L2', 'L3'] : ['L1'];
   const circuits: PowerCircuit[] = Array.from({ length: circuitCount }, (_, index) => ({
     id: crypto.randomUUID(),
-    name: `Цепь ${index + 1}`,
+    name: circuitName(index + 1),
     phase: phases[index % phases.length],
     assignedCabinets: order.slice(index * capacity, (index + 1) * capacity)
   }));

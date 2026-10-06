@@ -1,5 +1,71 @@
 import type { CabinetPreset, PowerCircuit, PowerPlan, Processor, ProcessorPort } from '@shared/types';
+import type { Lang } from '@shared/lang';
 import { usablePowerPerPortW } from '@shared/powerLimits';
+
+const MESSAGES = {
+  ru: {
+    csvScreensHeaders: ['Экран', 'Модель', 'Колонки', 'Ряды', 'Кабинеты', 'Ширина, мм', 'Высота, мм', 'Разрешение X', 'Разрешение Y', 'Вес, кг', 'Макс. мощность, Вт', 'Средняя мощность, Вт'],
+    csvPickListHeaders: ['Бренд', 'Модель', 'Количество', 'Размер кабинета, мм', 'Разрешение кабинета', 'Шаг, мм', 'Общий вес, кг', 'Макс. мощность, Вт'],
+    csvPowerHeaders: ['Экран', 'Цепь', 'Фаза', 'Кабинеты', 'Количество', 'Напряжение, В', 'Автомат, А', 'Запас, %', 'Расчётный ток, А'],
+    csvDataPathHeaders: ['Экран', 'Контроллер', 'Порт', 'Порядок', 'Кабинет', 'Столбец', 'Ряд', 'Пикселей в порту', 'Лимит порта'],
+    mask: 'Маска',
+    overloaded: 'Перегрузка',
+    ok: 'В норме',
+    cabinetsCaption: 'Кабинеты: col-row, координаты от 0. Последовательность указана отдельно для каждого порта.',
+    signalHeaders: ['Sending card', 'Модель', 'Порт', 'Каб.', 'Пикселей', 'Лимит, px', 'Состояние', 'Порядок: кабинет'],
+    noSignalPaths: 'Сигнальные пути не назначены.',
+    powerSummary: (voltage: number, amps: number, margin: number, pf: number, phases: number) =>
+      `Напряжение: ${voltage} В · автомат: ${amps} А · запас: ${margin}% · cos φ: ${pf} · фаз: ${phases}`,
+    powerHeaders: ['Цепь', 'Фаза', 'Каб.', 'Мощность, Вт', 'Лимит, Вт', 'Ток, А', 'Состояние', 'Порядок: кабинет'],
+    noPowerPaths: 'Силовые пути не назначены.',
+    detailHeaders: ['Параметр', 'Значение'],
+    cabinetParam: 'Кабинет',
+    layoutInstalled: 'Раскладка / установлено',
+    screenResolutionPx: 'Разрешение экрана, px',
+    cabinetSizeResolution: 'Размер кабинета, мм / разрешение, px',
+    pixelPitchMm: 'Шаг пикселя, мм',
+    screenSizeMm: 'Размер экрана, мм',
+    weightKg: 'Вес, кг',
+    powerMaxAvg: 'Мощность макс. / средняя, Вт',
+    positionRotation: 'Положение на холсте / поворот',
+    emptyCabinets: 'Пустые кабинеты (col-row, от 0)',
+    none: 'Нет',
+    summaryHeaders: ['Экран', 'Кабинет', 'Раскладка', 'Количество', 'Размер, мм', 'Вес, кг', 'Макс., Вт'],
+    reportSummary: (screens: number, cabinets: number, date: string) => `Экранов: ${screens} · кабинетов: ${cabinets} · отчёт создан ${date}`,
+    dateLocale: 'ru-RU'
+  },
+  en: {
+    csvScreensHeaders: ['Screen', 'Model', 'Columns', 'Rows', 'Cabinets', 'Width, mm', 'Height, mm', 'Resolution X', 'Resolution Y', 'Weight, kg', 'Max power, W', 'Average power, W'],
+    csvPickListHeaders: ['Brand', 'Model', 'Count', 'Cabinet size, mm', 'Cabinet resolution', 'Pitch, mm', 'Total weight, kg', 'Max power, W'],
+    csvPowerHeaders: ['Screen', 'Circuit', 'Phase', 'Cabinets', 'Count', 'Voltage, V', 'Breaker, A', 'Margin, %', 'Calculated current, A'],
+    csvDataPathHeaders: ['Screen', 'Controller', 'Port', 'Order', 'Cabinet', 'Column', 'Row', 'Pixels on port', 'Port limit'],
+    mask: 'Mask',
+    overloaded: 'Overloaded',
+    ok: 'OK',
+    cabinetsCaption: 'Cabinets: col-row, 0-based coordinates. The sequence is listed separately for each port.',
+    signalHeaders: ['Sending card', 'Model', 'Port', 'Cab.', 'Pixels', 'Limit, px', 'Status', 'Order: cabinet'],
+    noSignalPaths: 'No signal paths assigned.',
+    powerSummary: (voltage: number, amps: number, margin: number, pf: number, phases: number) =>
+      `Voltage: ${voltage} V · breaker: ${amps} A · margin: ${margin}% · cos φ: ${pf} · phases: ${phases}`,
+    powerHeaders: ['Circuit', 'Phase', 'Cab.', 'Power, W', 'Limit, W', 'Current, A', 'Status', 'Order: cabinet'],
+    noPowerPaths: 'No power paths assigned.',
+    detailHeaders: ['Parameter', 'Value'],
+    cabinetParam: 'Cabinet',
+    layoutInstalled: 'Layout / installed',
+    screenResolutionPx: 'Screen resolution, px',
+    cabinetSizeResolution: 'Cabinet size, mm / resolution, px',
+    pixelPitchMm: 'Pixel pitch, mm',
+    screenSizeMm: 'Screen size, mm',
+    weightKg: 'Weight, kg',
+    powerMaxAvg: 'Power max / average, W',
+    positionRotation: 'Canvas position / rotation',
+    emptyCabinets: 'Empty cabinets (col-row, 0-based)',
+    none: 'None',
+    summaryHeaders: ['Screen', 'Cabinet', 'Layout', 'Count', 'Size, mm', 'Weight, kg', 'Max, W'],
+    reportSummary: (screens: number, cabinets: number, date: string) => `Screens: ${screens} · cabinets: ${cabinets} · report generated ${date}`,
+    dateLocale: 'en-US'
+  }
+} satisfies Record<Lang, unknown>;
 
 export interface ExportScreen {
   id: string;
@@ -30,7 +96,8 @@ function cabinetCount(screen: ExportScreen): number {
   return screen.cols * screen.rows - screen.emptyCabinetKeys.length;
 }
 
-export function buildCsvFiles(screens: ExportScreen[]): Record<string, string> {
+export function buildCsvFiles(screens: ExportScreen[], lang: Lang = 'ru'): Record<string, string> {
+  const m = MESSAGES[lang];
   const pick = new Map<string, { preset: CabinetPreset; count: number }>();
   screens.forEach((screen) => {
     const current = pick.get(screen.preset.id) ?? { preset: screen.preset, count: 0 };
@@ -40,7 +107,7 @@ export function buildCsvFiles(screens: ExportScreen[]): Record<string, string> {
 
   return {
     'screens.csv': csv([
-      ['Экран', 'Модель', 'Колонки', 'Ряды', 'Кабинеты', 'Ширина, мм', 'Высота, мм', 'Разрешение X', 'Разрешение Y', 'Вес, кг', 'Макс. мощность, Вт', 'Средняя мощность, Вт'],
+      m.csvScreensHeaders,
       ...screens.map((screen) => {
         const count = cabinetCount(screen);
         return [
@@ -54,7 +121,7 @@ export function buildCsvFiles(screens: ExportScreen[]): Record<string, string> {
       })
     ]),
     'pick-list.csv': csv([
-      ['Бренд', 'Модель', 'Количество', 'Размер кабинета, мм', 'Разрешение кабинета', 'Шаг, мм', 'Общий вес, кг', 'Макс. мощность, Вт'],
+      m.csvPickListHeaders,
       ...Array.from(pick.values()).map(({ preset, count }) => [
         preset.brand, preset.model, count, `${preset.widthMm} × ${preset.heightMm}`,
         `${preset.resolutionX} × ${preset.resolutionY}`, preset.pixelPitchMm,
@@ -62,7 +129,7 @@ export function buildCsvFiles(screens: ExportScreen[]): Record<string, string> {
       ])
     ]),
     'power.csv': csv([
-      ['Экран', 'Цепь', 'Фаза', 'Кабинеты', 'Количество', 'Напряжение, В', 'Автомат, А', 'Запас, %', 'Расчётный ток, А'],
+      m.csvPowerHeaders,
       ...screens.flatMap((screen) => screen.powerPlan?.circuits.map((circuit) => {
         const count = circuit.assignedCabinets.length;
         const amps = count * screen.preset.maxPowerW /
@@ -75,7 +142,7 @@ export function buildCsvFiles(screens: ExportScreen[]): Record<string, string> {
       }) ?? [])
     ]),
     'data-path.csv': csv([
-      ['Экран', 'Контроллер', 'Порт', 'Порядок', 'Кабинет', 'Столбец', 'Ряд', 'Пикселей в порту', 'Лимит порта'],
+      m.csvDataPathHeaders,
       ...screens.flatMap((screen) => screen.processor?.ports.flatMap((port) => {
         const portPixels = port.assignedCabinets.length * screen.preset.resolutionX * screen.preset.resolutionY;
         return port.assignedCabinets.map((key, index) => {
@@ -192,7 +259,8 @@ export function buildScreenSvg(screen: ExportScreen, mode: 'signal' | 'power' = 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#0b1117"/><title>${escapeXml(screen.name)}</title>${cabinetBodies}${paths}${labels}<rect x="0" y="0" width="${width}" height="${height}" fill="none" stroke="#000" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
-export function buildReportHtml(projectName: string, screens: ExportScreen[]): string {
+export function buildReportHtml(projectName: string, screens: ExportScreen[], lang: Lang = 'ru'): string {
+  const m = MESSAGES[lang];
   const table = (headers: string[], rows: unknown[][]): string => `<table><thead><tr>${headers.map((value) => `<th>${escapeXml(value)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((value) => `<td>${escapeXml(String(value ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   const details = screens.map((screen) => {
     const caption = escapeXml(screen.name);
@@ -202,32 +270,32 @@ export function buildReportHtml(projectName: string, screens: ExportScreen[]): s
     const limit = plan ? usablePowerPerPortW(plan.voltage, plan.circuitBreakerAmps, plan.safetyMarginPercent, plan.powerFactor) : 0;
     const signalRows = ports.map((port) => {
       const pixels = port.assignedCabinets.length * screen.preset.resolutionX * screen.preset.resolutionY;
-      return [port.controllerId ?? '', port.controllerName ?? screen.processor?.model ?? '', port.sourcePortName ?? port.portId, port.assignedCabinets.length, pixels, port.maxPixels, pixels > port.maxPixels || (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets) ? 'Перегрузка' : 'В норме', port.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
+      return [port.controllerId ?? '', port.controllerName ?? screen.processor?.model ?? '', port.sourcePortName ?? port.portId, port.assignedCabinets.length, pixels, port.maxPixels, pixels > port.maxPixels || (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets) ? m.overloaded : m.ok, port.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
     });
     const powerRows = (plan?.circuits ?? []).map((circuit) => {
       const watts = circuit.assignedCabinets.length * screen.preset.maxPowerW;
-      return [circuit.name, circuit.phase, circuit.assignedCabinets.length, watts.toFixed(2), limit.toFixed(2), (watts / Math.max(1, plan!.voltage * plan!.powerFactor)).toFixed(2), watts > limit ? 'Перегрузка' : 'В норме', circuit.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
+      return [circuit.name, circuit.phase, circuit.assignedCabinets.length, watts.toFixed(2), limit.toFixed(2), (watts / Math.max(1, plan!.voltage * plan!.powerFactor)).toFixed(2), watts > limit ? m.overloaded : m.ok, circuit.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
     });
     const mask = screen.imageSource?.startsWith('data:image/png;base64,') ? `<img src="${escapeXml(screen.imageSource)}" alt="${caption}"/>` : buildScreenSvg({ ...screen, processor: undefined });
-    return `<section class="page"><h2>${caption} · Маска</h2><div class="mask">${mask}</div>${table(['Параметр', 'Значение'], [
-      ['Кабинет', `${screen.preset.brand} ${screen.preset.model}`],
-      ['Раскладка / установлено', `${screen.cols} × ${screen.rows} / ${count}`],
-      ['Разрешение экрана, px', `${screen.cols * screen.preset.resolutionX} × ${screen.rows * screen.preset.resolutionY}`],
-      ['Размер кабинета, мм / разрешение, px', `${screen.preset.widthMm} × ${screen.preset.heightMm} / ${screen.preset.resolutionX} × ${screen.preset.resolutionY}`],
-      ['Шаг пикселя, мм', screen.preset.pixelPitchMm],
-      ['Размер экрана, мм', `${screen.cols * screen.preset.widthMm} × ${screen.rows * screen.preset.heightMm}`],
-      ['Вес, кг', (count * screen.preset.weightKg).toFixed(2)],
-      ['Мощность макс. / средняя, Вт', `${(count * screen.preset.maxPowerW).toFixed(2)} / ${(count * screen.preset.avgPowerW).toFixed(2)}`],
-      ['Положение на холсте / поворот', `${screen.x}, ${screen.y} / ${screen.rotation}°`],
-      ['Пустые кабинеты (col-row, от 0)', screen.emptyCabinetKeys.join('; ') || 'Нет']
+    return `<section class="page"><h2>${caption} · ${m.mask}</h2><div class="mask">${mask}</div>${table(m.detailHeaders, [
+      [m.cabinetParam, `${screen.preset.brand} ${screen.preset.model}`],
+      [m.layoutInstalled, `${screen.cols} × ${screen.rows} / ${count}`],
+      [m.screenResolutionPx, `${screen.cols * screen.preset.resolutionX} × ${screen.rows * screen.preset.resolutionY}`],
+      [m.cabinetSizeResolution, `${screen.preset.widthMm} × ${screen.preset.heightMm} / ${screen.preset.resolutionX} × ${screen.preset.resolutionY}`],
+      [m.pixelPitchMm, screen.preset.pixelPitchMm],
+      [m.screenSizeMm, `${screen.cols * screen.preset.widthMm} × ${screen.rows * screen.preset.heightMm}`],
+      [m.weightKg, (count * screen.preset.weightKg).toFixed(2)],
+      [m.powerMaxAvg, `${(count * screen.preset.maxPowerW).toFixed(2)} / ${(count * screen.preset.avgPowerW).toFixed(2)}`],
+      [m.positionRotation, `${screen.x}, ${screen.y} / ${screen.rotation}°`],
+      [m.emptyCabinets, screen.emptyCabinetKeys.join('; ') || m.none]
     ])}</section>
-    <section class="page"><h2>${caption} · signal path</h2><div class="mask">${buildScreenSvg(screen, 'signal')}</div><p>Кабинеты: col-row, координаты от 0. Последовательность указана отдельно для каждого порта.</p>${signalRows.length ? table(['Sending card', 'Модель', 'Порт', 'Каб.', 'Пикселей', 'Лимит, px', 'Состояние', 'Порядок: кабинет'], signalRows) : '<p>Сигнальные пути не назначены.</p>'}</section>
-    <section class="page"><h2>${caption} · power path</h2><div class="mask">${buildScreenSvg(screen, 'power')}</div>${plan ? `<p>Напряжение: ${plan.voltage} В · автомат: ${plan.circuitBreakerAmps} А · запас: ${plan.safetyMarginPercent}% · cos φ: ${plan.powerFactor} · фаз: ${plan.phases}</p>` : ''}${powerRows.length ? table(['Цепь', 'Фаза', 'Каб.', 'Мощность, Вт', 'Лимит, Вт', 'Ток, А', 'Состояние', 'Порядок: кабинет'], powerRows) : '<p>Силовые пути не назначены.</p>'}</section>`;
+    <section class="page"><h2>${caption} · signal path</h2><div class="mask">${buildScreenSvg(screen, 'signal')}</div><p>${m.cabinetsCaption}</p>${signalRows.length ? table(m.signalHeaders, signalRows) : `<p>${m.noSignalPaths}</p>`}</section>
+    <section class="page"><h2>${caption} · power path</h2><div class="mask">${buildScreenSvg(screen, 'power')}</div>${plan ? `<p>${m.powerSummary(plan.voltage, plan.circuitBreakerAmps, plan.safetyMarginPercent, plan.powerFactor, plan.phases)}</p>` : ''}${powerRows.length ? table(m.powerHeaders, powerRows) : `<p>${m.noPowerPaths}</p>`}</section>`;
   }).join('');
   const totalCabinets = screens.reduce((sum, screen) => sum + cabinetCount(screen), 0);
   const rows = screens.map((screen) => {
     const count = cabinetCount(screen);
     return `<tr><td>${escapeXml(screen.name)}</td><td>${escapeXml(`${screen.preset.brand} ${screen.preset.model}`)}</td><td>${screen.cols} × ${screen.rows}</td><td>${count}</td><td>${screen.cols * screen.preset.widthMm} × ${screen.rows * screen.preset.heightMm}</td><td>${(count * screen.preset.weightKg).toFixed(2)}</td><td>${(count * screen.preset.maxPowerW).toFixed(0)}</td></tr>`;
   }).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4 landscape;margin:14mm}body{font-family:Arial,sans-serif;color:#17212b}h1{font-size:22px}p{color:#52606d}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #aab4bd;padding:6px;text-align:left}th{background:#e7f7fb}.page{break-before:page}h2{font-size:18px}.mask{height:135mm;display:flex;align-items:center;justify-content:center;margin:8px 0}.mask svg{width:100%;height:100%}.mask img{width:auto;height:auto;max-width:100%;max-height:100%;outline:1px solid #000;outline-offset:-1px}td{overflow-wrap:anywhere}thead{display:table-header-group}tr{break-inside:avoid}</style></head><body><h1>${escapeXml(projectName)}</h1><p>Экранов: ${screens.length} · кабинетов: ${totalCabinets} · отчёт создан ${new Date().toLocaleString('ru-RU')}</p><table><thead><tr><th>Экран</th><th>Кабинет</th><th>Раскладка</th><th>Количество</th><th>Размер, мм</th><th>Вес, кг</th><th>Макс., Вт</th></tr></thead><tbody>${rows}</tbody></table>${details}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4 landscape;margin:14mm}body{font-family:Arial,sans-serif;color:#17212b}h1{font-size:22px}p{color:#52606d}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #aab4bd;padding:6px;text-align:left}th{background:#e7f7fb}.page{break-before:page}h2{font-size:18px}.mask{height:135mm;display:flex;align-items:center;justify-content:center;margin:8px 0}.mask svg{width:100%;height:100%}.mask img{width:auto;height:auto;max-width:100%;max-height:100%;outline:1px solid #000;outline-offset:-1px}td{overflow-wrap:anywhere}thead{display:table-header-group}tr{break-inside:avoid}</style></head><body><h1>${escapeXml(projectName)}</h1><p>${m.reportSummary(screens.length, totalCabinets, new Date().toLocaleString(m.dateLocale))}</p><table><thead><tr>${m.summaryHeaders.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>${details}</body></html>`;
 }

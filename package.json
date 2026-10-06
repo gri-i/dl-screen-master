@@ -22,8 +22,36 @@
       "package.json"
     ],
     "win": {
-      "target": "nsis"
-    }
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.graphics-design",
+      "identity": null
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

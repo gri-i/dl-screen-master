@@ -26,30 +26,35 @@ import {
   type StartCorner
 } from '@shared/autoRouting';
 import { usablePowerPerPortW } from '@shared/powerLimits';
+import type { Lang } from '@shared/lang';
+import { useLanguage } from '../i18n/context';
 
-const OVERLAY_POSITION_LABELS: Record<OverlayPosition, string> = {
-  'top-left': 'Сверху слева',
-  'top-center': 'Сверху по центру',
-  'top-right': 'Сверху справа',
-  'bottom-left': 'Снизу слева',
-  'bottom-center': 'Снизу по центру',
-  'bottom-right': 'Снизу справа'
-};
+function overlayPositionLabels(t: (key: string) => string): Record<OverlayPosition, string> {
+  return {
+    'top-left': t('tpv.direction.topLeft'),
+    'top-center': t('tpv.direction.topCenter'),
+    'top-right': t('tpv.direction.topRight'),
+    'bottom-left': t('tpv.direction.bottomLeft'),
+    'bottom-center': t('tpv.direction.bottomCenter'),
+    'bottom-right': t('tpv.direction.bottomRight')
+  };
+}
 
 const CHECKERBOARD_COLOR_PRESETS = [
   {
-    name: 'Многоцветный 25%',
+    id: 'multicolor25',
+    nameKey: 'tpv.colorScheme.multicolor25',
     colorA: '#400000',
     colorB: '#004000',
     palette: ['#400000', '#004000', '#000040', '#004040', '#400040', '#404000']
   },
-  { name: 'Зелёная схема', colorA: '#25b43a', colorB: '#454545' },
-  { name: 'Красная схема', colorA: '#ef3340', colorB: '#454545' },
-  { name: 'Синяя схема', colorA: '#0752ce', colorB: '#454545' },
-  { name: 'Жёлтая схема', colorA: '#ffda19', colorB: '#454545' },
-  { name: 'Оранжевая схема', colorA: '#ff4b26', colorB: '#454545' },
-  { name: 'Бирюзовая схема', colorA: '#16a9ba', colorB: '#454545' },
-  { name: 'Фиолетовая схема', colorA: '#9a6bd1', colorB: '#454545' }
+  { id: 'green', nameKey: 'tpv.colorScheme.green', colorA: '#25b43a', colorB: '#454545' },
+  { id: 'red', nameKey: 'tpv.colorScheme.red', colorA: '#ef3340', colorB: '#454545' },
+  { id: 'blue', nameKey: 'tpv.colorScheme.blue', colorA: '#0752ce', colorB: '#454545' },
+  { id: 'yellow', nameKey: 'tpv.colorScheme.yellow', colorA: '#ffda19', colorB: '#454545' },
+  { id: 'orange', nameKey: 'tpv.colorScheme.orange', colorA: '#ff4b26', colorB: '#454545' },
+  { id: 'teal', nameKey: 'tpv.colorScheme.teal', colorA: '#16a9ba', colorB: '#454545' },
+  { id: 'purple', nameKey: 'tpv.colorScheme.purple', colorA: '#9a6bd1', colorB: '#454545' }
 ] as const;
 
 function fullBrightnessColor(color: string): string {
@@ -328,6 +333,7 @@ export function TestPatternViewer({
   projectLoadSignal,
   onProjectScreensChange
 }: TestPatternViewerProps): JSX.Element {
+  const { t, lang } = useLanguage();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasPaneRef = useRef<HTMLDivElement>(null);
   const canvasStageRef = useRef<HTMLDivElement>(null);
@@ -1662,7 +1668,7 @@ export function TestPatternViewer({
     event.target.value = '';
     if (!file) return;
 
-    setImportStatus('Чтение NovaStar…');
+    setImportStatus(t('tpv.status.readingNovaStar'));
     try {
       // Сопоставляем кабинеты из файла с уже существующими в базе пресетами
       // (по brand+model, затем по разрешению) — повторный импорт того же
@@ -1671,7 +1677,7 @@ export function TestPatternViewer({
       // из самого файла — её нельзя подменять выбранным в базе пресетом,
       // иначе для некавадратных кабинетов (напр. 256×64) раскладка/пути
       // визуально разъедутся с реальным кабинетом.
-      const imported = await importNovaStarProject(file, presets);
+      const imported = await importNovaStarProject(file, presets, lang);
       // SRCX/SCR часто не содержат паспортные вес/мощность кабинета. Для
       // несматченных (новых) пресетов с такими "пустыми" значениями донором
       // веса/мощности служит кабинет, выбранный пользователем в базе —
@@ -1718,11 +1724,11 @@ export function TestPatternViewer({
       setSelectedScreenIds([]);
       window.requestAnimationFrame(() => fitScreensInWorkspace(allScreens));
       const matchedCount = imported.screens.filter((screen) => screen.matchedExistingPreset).length;
-      setImportStatus(`Импортировано экранов: ${screens.length}` +
-        (matchedCount > 0 ? ` · сопоставлено с базой: ${matchedCount}` : '') +
-        (newPresets.length > 0 ? ` · новых пресетов: ${newPresets.length}` : ''));
+      setImportStatus(t('tpv.status.importedScreens', { count: screens.length }) +
+        (matchedCount > 0 ? t('tpv.status.matchedWithLibrary', { count: matchedCount }) : '') +
+        (newPresets.length > 0 ? t('tpv.status.newPresets', { count: newPresets.length }) : ''));
     } catch (error) {
-      setImportStatus(error instanceof Error ? error.message : 'Не удалось импортировать файл NovaStar');
+      setImportStatus(error instanceof Error ? error.message : t('tpv.status.novaStarImportFailed'));
     }
   }
 
@@ -1892,7 +1898,7 @@ export function TestPatternViewer({
       const combined = await buildCombinedMaskCanvas(withMasks);
       if (combined) {
         files.push({
-          name: `${safeExportName('Общая маска')}-${combined.width}x${combined.height}.png`,
+          name: `${safeExportName(t('tpv.combinedMaskName'))}-${combined.width}x${combined.height}.png`,
           bytes: await canvasToPngBytes(combined)
         });
       }
@@ -1990,7 +1996,7 @@ export function TestPatternViewer({
         selectedScreenIds.length === 0 || selectedScreenIds.includes(screen.id));
       const masks = await buildScreenMaskFiles(selectedPlaced);
       const filePath = await window.exportFiles.savePdf(
-        buildReportHtml(projectName, exportScreens()),
+        buildReportHtml(projectName, exportScreens(), lang),
         `${safeExportName(projectName)}-report.pdf`,
         safeExportName(projectName),
         masks
@@ -2052,7 +2058,7 @@ export function TestPatternViewer({
         safetyMarginPercent: autoPowerSource.safetyMarginPercent,
         powerFactor: autoPowerSource.powerFactor,
         phases: autoPowerSource.phases
-      }, autoRoutingOrder, selectedDataPreset.maxPowerW, autoPowerCabinetLimit ?? undefined)
+      }, autoRoutingOrder, selectedDataPreset.maxPowerW, autoPowerCabinetLimit ?? undefined, (n) => t('pp.circuitName', { n }))
     : null, [
       selectedDataPreset,
       autoRoutingOrder,
@@ -2234,7 +2240,7 @@ export function TestPatternViewer({
             {!logoSource && <p className="field-hint">Загрузите логотип выше, чтобы применить эти настройки.</p>}
             <label>Позиция
               <select value={logoPosition} onChange={(e) => setLogoPosition(e.target.value as OverlayPosition)}>
-                {Object.entries(OVERLAY_POSITION_LABELS).map(([value, label]) => (
+                {Object.entries(overlayPositionLabels(t)).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
                 ))}
               </select>
@@ -2292,7 +2298,7 @@ export function TestPatternViewer({
                 }}
               >
                 <option value="-1">Пользовательские цвета</option>
-                {CHECKERBOARD_COLOR_PRESETS.map((preset, index) => <option key={preset.name} value={index}>{preset.name}</option>)}
+                {CHECKERBOARD_COLOR_PRESETS.map((preset, index) => <option key={preset.id} value={index}>{t(preset.nameKey)}</option>)}
               </select>
             </label>
             <div className="pattern-preset-preview" aria-label="Превью схемы">
