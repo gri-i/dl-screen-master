@@ -77,6 +77,12 @@ export interface ScreenInstance {
   visualSettings: ScreenVisualSettings;
 }
 
+/** Видеосигнал, по которому считается загрузка портов контроллера. */
+export interface SignalFormat {
+  bitDepth: 8 | 10 | 12;
+  frameRateHz: number;
+}
+
 export interface Project {
   format: 'dl-screen-master-project';
   version: 1;
@@ -85,6 +91,7 @@ export interface Project {
   updatedAt: string;
   screens: ScreenInstance[];
   customPresets: CabinetPreset[];
+  signal?: SignalFormat;
 }
 
 /** Процессор/контроллер (напр. Novastar) — для data path mapping */
@@ -100,7 +107,9 @@ export interface ProcessorPort {
   controllerId?: string;       // id/номер отправляющего устройства из исходного проекта
   controllerName?: string;     // модель отправляющего устройства, напр. "MCTRL4K"
   sourcePortName?: string;     // физическое имя выхода, напр. "A1"
-  maxPixels: number;           // макс. пикселей на порт (ограничение железа)
+  maxPixels: number;           // макс. пикселей на порт при 8 бит / 60 Гц (ограничение железа)
+  /** Модель линка: если задана, ёмкость порта считается от битности и fps (см. shared/capacity). */
+  link?: { speedGbps: number; efficiency: number; packing: 'container' | 'container-legacy' | 'naive' };
   maxCabinets?: number;        // опционально: лимит по кол-ву кабинетов на порт
   assignedCabinets: string[];  // id назначенных CabinetInstance (col-row ключи)
 }

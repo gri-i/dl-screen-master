@@ -305,6 +305,7 @@ button:hover { border-color: var(--accent); color: #fff; }
 .auto-routing-actions button:last-child { grid-column: 1 / -1; color: var(--on-accent); border-color: var(--accent); background: var(--accent); font-weight: 800; }
 .data-path-panel > strong { color: var(--dl-ok-text); }
 .data-controller-create { display: grid; gap: 8px; }
+.data-signal-format { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
 .data-controller-create .field-hint { margin: 0; }
 .data-controller-create label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; }
 .data-controller-create select { width: 100%; }

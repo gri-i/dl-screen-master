@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { calculateScreenPower } from '@shared/calculations';
 import type { CabinetInstance, CabinetPreset, Screen, PowerGridConfig } from '@shared/types';
+import { useT } from '../i18n/context';
 
 export interface ScreenConfig {
   presetId: string;
@@ -28,13 +29,15 @@ export function PowerCalculator({
   presets,
   gridConfig
 }: PowerCalculatorProps): JSX.Element {
+  const t = useT();
   const { cols, rows, presetId } = screenConfig;
 
   const preset = presets.find((item) => item.id === presetId) ?? presets[0];
 
   const screen: Screen = useMemo(() => {
     const cabinets: CabinetInstance[] = [];
-    if (!preset) return { id: 'screen-1', name: 'Тестовый экран', cabinets, cols, rows };
+    const name = t('pc.testScreenName');
+    if (!preset) return { id: 'screen-1', name, cabinets, cols, rows };
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (!screenConfig.emptyCabinetKeys.includes(`${c}-${r}`)) {
@@ -42,16 +45,16 @@ export function PowerCalculator({
         }
       }
     }
-    return { id: 'screen-1', name: 'Тестовый экран', cabinets, cols, rows };
-  }, [cols, rows, preset?.id, screenConfig.emptyCabinetKeys]);
+    return { id: 'screen-1', name, cabinets, cols, rows };
+  }, [cols, rows, preset?.id, screenConfig.emptyCabinetKeys, t]);
 
   if (!preset) {
     return (
       <section className="power-calculator">
-        <h2>Параметры экрана</h2>
+        <h2>{t('pc.title')}</h2>
         <fieldset>
-          <legend>Модель кабинета</legend>
-          <p className="field-hint">В базе нет кабинетов. Добавьте или импортируйте кабинет в настройках.</p>
+          <legend>{t('pc.cabinetModel')}</legend>
+          <p className="field-hint">{t('pc.noCabinets')}</p>
         </fieldset>
       </section>
     );
@@ -61,29 +64,28 @@ export function PowerCalculator({
 
   return (
     <section className="power-calculator">
-      <h2>Параметры экрана</h2>
+      <h2>{t('pc.title')}</h2>
       <fieldset>
-        <legend>Модель кабинета</legend>
+        <legend>{t('pc.cabinetModel')}</legend>
         <select
           value={presetId}
           onChange={(e) => onScreenConfigChange((current) => ({ ...current, presetId: e.target.value }))}
         >
           {presets.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.brand} {p.model} (pitch {p.pixelPitchMm} мм)
+              {t('pc.optionLabel', { brand: p.brand, model: p.model, pitch: p.pixelPitchMm })}
             </option>
           ))}
         </select>
         <p className="field-hint">
-          {preset.widthMm}×{preset.heightMm} мм, {preset.weightKg} кг,
-          макс. {preset.maxPowerW} Вт / сред. {preset.avgPowerW} Вт на кабинет
+          {t('pc.presetSummary', { width: preset.widthMm, height: preset.heightMm, weight: preset.weightKg, maxPower: preset.maxPowerW, avgPower: preset.avgPowerW })}
         </p>
       </fieldset>
 
       <fieldset>
-        <legend>Раскладка экрана</legend>
+        <legend>{t('pc.layout')}</legend>
         <label>
-          Кабинетов по горизонтали:{' '}
+          {t('pc.colsLabel')}{' '}
           <input
             type="number"
             value={cols}
@@ -99,7 +101,7 @@ export function PowerCalculator({
         </label>
         <br />
         <label>
-          Кабинетов по вертикали:{' '}
+          {t('pc.rowsLabel')}{' '}
           <input
             type="number"
             value={rows}
@@ -115,20 +117,20 @@ export function PowerCalculator({
         </label>
       </fieldset>
 
-      <h3>Расчёт</h3>
+      <h3>{t('pc.calculation')}</h3>
       <table className="result-table">
         <tbody>
-          <Row label="Всего кабинетов" value={result.totalCabinets} />
-          <Row label="Разрешение (px)" value={`${cols * preset.resolutionX} × ${rows * preset.resolutionY}`} />
-          <Row label="Габариты (мм)" value={`${result.totalWidthMm} × ${result.totalHeightMm}`} />
-          <Row label="Общий вес (кг)" value={result.totalWeightKg.toFixed(1)} />
-          <Row label="Пиковое потребление (Вт)" value={result.totalMaxPowerW} />
-          <Row label="Пиковое потребление (кВт)" value={(result.totalMaxPowerW / 1000).toFixed(2)} />
-          <Row label="Среднее потребление (Вт)" value={result.totalAvgPowerW} />
+          <Row label={t('pc.totalCabinets')} value={result.totalCabinets} />
+          <Row label={t('pc.resolutionPx')} value={`${cols * preset.resolutionX} × ${rows * preset.resolutionY}`} />
+          <Row label={t('pc.dimensionsMm')} value={`${result.totalWidthMm} × ${result.totalHeightMm}`} />
+          <Row label={t('pc.totalWeightKg')} value={result.totalWeightKg.toFixed(1)} />
+          <Row label={t('pc.peakPowerW')} value={result.totalMaxPowerW} />
+          <Row label={t('pc.peakPowerKw')} value={(result.totalMaxPowerW / 1000).toFixed(2)} />
+          <Row label={t('pc.avgPowerW')} value={result.totalAvgPowerW} />
           <Row
-            label="Нужно цепей питания"
-            value={`${result.recommendedCircuits.circuitsNeeded} × ${result.recommendedCircuits.ampsPerCircuit}А (${
-              result.recommendedCircuits.phase === 'three' ? '3ф' : '1ф'
+            label={t('pc.circuitsNeeded')}
+            value={`${result.recommendedCircuits.circuitsNeeded} × ${result.recommendedCircuits.ampsPerCircuit}A (${
+              result.recommendedCircuits.phase === 'three' ? t('pc.phaseThree') : t('pc.phaseSingle')
             })`}
           />
         </tbody>

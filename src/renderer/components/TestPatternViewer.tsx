@@ -6,8 +6,12 @@ import type {
   ScreenVisualSettings,
   Processor,
   ProcessorPort,
-  PowerPlan
+  PowerPlan,
+  SignalFormat
 } from '@shared/types';
+import { portMaxFrameRate, portMaxPixels } from '@shared/capacity';
+import { checkControllerCanvas, checkReceiverCard } from '@shared/hardwareLimits';
+import { validateWiring, type WiringIssue } from '@shared/layoutValidation';
 import {
   DEFAULT_PATTERN_CONFIG,
   drawPattern,
@@ -17,7 +21,8 @@ import {
 import type { ScreenConfig } from './PowerCalculator';
 import { importNovaStarProject } from '../novastarImport';
 import { PowerPathPlanner } from './PowerPathPlanner';
-import { buildReportHtml, type ExportScreen } from '../projectExport';
+import { buildResolumeXml } from '../resolumeExport';
+import { buildCabinetScheduleCsv, buildReportHtml, type ExportScreen } from '../projectExport';
 import {
   generateCabinetOrder,
   generatePowerPlan,
@@ -26,30 +31,35 @@ import {
   type StartCorner
 } from '@shared/autoRouting';
 import { usablePowerPerPortW } from '@shared/powerLimits';
+import type { Lang } from '@shared/lang';
+import { useLanguage } from '../i18n/context';
 
-const OVERLAY_POSITION_LABELS: Record<OverlayPosition, string> = {
-  'top-left': 'Сверху слева',
-  'top-center': 'Сверху по центру',
-  'top-right': 'Сверху справа',
-  'bottom-left': 'Снизу слева',
-  'bottom-center': 'Снизу по центру',
-  'bottom-right': 'Снизу справа'
-};
+function overlayPositionLabels(t: (key: string) => string): Record<OverlayPosition, string> {
+  return {
+    'top-left': t('tpv.direction.topLeft'),
+    'top-center': t('tpv.direction.topCenter'),
+    'top-right': t('tpv.direction.topRight'),
+    'bottom-left': t('tpv.direction.bottomLeft'),
+    'bottom-center': t('tpv.direction.bottomCenter'),
+    'bottom-right': t('tpv.direction.bottomRight')
+  };
+}
 
 const CHECKERBOARD_COLOR_PRESETS = [
   {
-    name: 'Многоцветный 25%',
+    id: 'multicolor25',
+    nameKey: 'tpv.colorScheme.multicolor25',
     colorA: '#400000',
     colorB: '#004000',
     palette: ['#400000', '#004000', '#000040', '#004040', '#400040', '#404000']
   },
-  { name: 'Зелёная схема', colorA: '#25b43a', colorB: '#454545' },
-  { name: 'Красная схема', colorA: '#ef3340', colorB: '#454545' },
-  { name: 'Синяя схема', colorA: '#0752ce', colorB: '#454545' },
-  { name: 'Жёлтая схема', colorA: '#ffda19', colorB: '#454545' },
-  { name: 'Оранжевая схема', colorA: '#ff4b26', colorB: '#454545' },
-  { name: 'Бирюзовая схема', colorA: '#16a9ba', colorB: '#454545' },
-  { name: 'Фиолетовая схема', colorA: '#9a6bd1', colorB: '#454545' }
+  { id: 'green', nameKey: 'tpv.colorScheme.green', colorA: '#25b43a', colorB: '#454545' },
+  { id: 'red', nameKey: 'tpv.colorScheme.red', colorA: '#ef3340', colorB: '#454545' },
+  { id: 'blue', nameKey: 'tpv.colorScheme.blue', colorA: '#0752ce', colorB: '#454545' },
+  { id: 'yellow', nameKey: 'tpv.colorScheme.yellow', colorA: '#ffda19', colorB: '#454545' },
+  { id: 'orange', nameKey: 'tpv.colorScheme.orange', colorA: '#ff4b26', colorB: '#454545' },
+  { id: 'teal', nameKey: 'tpv.colorScheme.teal', colorA: '#16a9ba', colorB: '#454545' },
+  { id: 'purple', nameKey: 'tpv.colorScheme.purple', colorA: '#9a6bd1', colorB: '#454545' }
 ] as const;
 
 function fullBrightnessColor(color: string): string {
@@ -141,6 +151,8 @@ interface TestPatternViewerProps {
   projectScreens: ScreenInstance[] | null;
   projectLoadSignal: number;
   onProjectScreensChange: (screens: ScreenInstance[]) => void;
+  signal: SignalFormat;
+  onSignalChange: (signal: SignalFormat) => void;
 }
 
 export interface ScreenHeaderSummary {
@@ -167,6 +179,7 @@ interface PlacedScreen {
   powerPlan?: PowerPlan;
 }
 
+// Допуск привязки в ЭКРАННЫХ пикселях (в координатах рабочей области делится на зум).
 const SNAP_DISTANCE_PX = 10;
 const MIN_ZOOM = 0.02;
 const MAX_ZOOM = 3;
@@ -203,6 +216,11 @@ function screenDisplaySize(
   const height = preset.resolutionY * rows * WORKSPACE_PX_PER_PIXEL;
   return rotation === 90 || rotation === 270 ? { width: height, height: width } : { width, height };
 }
+
+const cabinetLabel = (key: string): string => {
+  const [col, row] = key.split('-').map(Number);
+  return `(${col + 1}, ${row + 1})`;
+};
 
 function screensOverlap(screens: PlacedScreen[]): boolean {
   return screens.some((screen, index) => screens.slice(index + 1).some((other) =>
@@ -326,8 +344,11 @@ export function TestPatternViewer({
   onPresetsImport,
   projectScreens,
   projectLoadSignal,
-  onProjectScreensChange
+  onProjectScreensChange,
+  signal,
+  onSignalChange
 }: TestPatternViewerProps): JSX.Element {
+  const { t, lang } = useLanguage();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasPaneRef = useRef<HTMLDivElement>(null);
   const canvasStageRef = useRef<HTMLDivElement>(null);
@@ -1365,55 +1386,64 @@ export function TestPatternViewer({
     if (!primaryOrigin) return;
     const deltaX = (event.clientX - dragStart.x) / workspaceZoom;
     const deltaY = (event.clientY - dragStart.y) / workspaceZoom;
-    const nextX = primaryOrigin.x + deltaX;
-    const nextY = primaryOrigin.y + deltaY;
 
     setPlacedScreens((current) => {
       const movingScreen = current.find((screen) => screen.id === dragStart.id);
       if (!movingScreen) return current;
       const movingIds = Object.keys(dragStart.origins);
       const others = current.filter((screen) => !movingIds.includes(screen.id));
-      let snappedX = nextX;
-      let snappedY = nextY;
-      let bestSnapXDistance = SNAP_DISTANCE_PX + 1;
-      let bestSnapYDistance = SNAP_DISTANCE_PX + 1;
+      // Привязываем bbox всей перетаскиваемой группы (а не только "главного"
+      // экрана), а допуск задан в ЭКРАННЫХ пикселях: делим на масштаб, чтобы
+      // на любом зуме привязка срабатывала с одинакового визуального расстояния.
+      const tolerance = SNAP_DISTANCE_PX / workspaceZoom;
+      const group = current.filter((screen) => movingIds.includes(screen.id));
+      const groupMinX = Math.min(...group.map((screen) => dragStart.origins[screen.id].x));
+      const groupMinY = Math.min(...group.map((screen) => dragStart.origins[screen.id].y));
+      const groupWidth = Math.max(...group.map((screen) => dragStart.origins[screen.id].x + screen.width)) - groupMinX;
+      const groupHeight = Math.max(...group.map((screen) => dragStart.origins[screen.id].y + screen.height)) - groupMinY;
+      const groupNextX = groupMinX + deltaX;
+      const groupNextY = groupMinY + deltaY;
+      let bestX: { pos: number; line: number } | null = null;
+      let bestY: { pos: number; line: number } | null = null;
+      let bestSnapXDistance = tolerance;
+      let bestSnapYDistance = tolerance;
 
       for (const other of others) {
+        // Порядок = приоритет при равенстве: примыкание, затем края, затем центры.
         const horizontalCandidates = [
-          other.x - movingScreen.width,
-          other.x,
-          other.x + other.width - movingScreen.width,
-          other.x + other.width
+          { pos: other.x + other.width, line: other.x + other.width },
+          { pos: other.x - groupWidth, line: other.x },
+          { pos: other.x, line: other.x },
+          { pos: other.x + other.width - groupWidth, line: other.x + other.width },
+          { pos: other.x + (other.width - groupWidth) / 2, line: other.x + other.width / 2 }
         ];
         const verticalCandidates = [
-          other.y - movingScreen.height,
-          other.y,
-          other.y + other.height - movingScreen.height,
-          other.y + other.height
+          { pos: other.y + other.height, line: other.y + other.height },
+          { pos: other.y - groupHeight, line: other.y },
+          { pos: other.y, line: other.y },
+          { pos: other.y + other.height - groupHeight, line: other.y + other.height },
+          { pos: other.y + (other.height - groupHeight) / 2, line: other.y + other.height / 2 }
         ];
 
         for (const candidate of horizontalCandidates) {
-          const distance = Math.abs(nextX - candidate);
-          if (distance <= SNAP_DISTANCE_PX && distance < bestSnapXDistance) {
-            snappedX = candidate;
+          const distance = Math.abs(groupNextX - candidate.pos);
+          if (distance <= bestSnapXDistance && (bestX === null || distance < bestSnapXDistance)) {
+            bestX = candidate;
             bestSnapXDistance = distance;
           }
         }
 
         for (const candidate of verticalCandidates) {
-          const distance = Math.abs(nextY - candidate);
-          if (distance <= SNAP_DISTANCE_PX && distance < bestSnapYDistance) {
-            snappedY = candidate;
+          const distance = Math.abs(groupNextY - candidate.pos);
+          if (distance <= bestSnapYDistance && (bestY === null || distance < bestSnapYDistance)) {
+            bestY = candidate;
             bestSnapYDistance = distance;
           }
         }
       }
-      setSnapGuides({
-        x: bestSnapXDistance <= SNAP_DISTANCE_PX ? snappedX : undefined,
-        y: bestSnapYDistance <= SNAP_DISTANCE_PX ? snappedY : undefined
-      });
-      const snappedDeltaX = snappedX - primaryOrigin.x;
-      const snappedDeltaY = snappedY - primaryOrigin.y;
+      const snappedDeltaX = (bestX ? bestX.pos : groupNextX) - groupMinX;
+      const snappedDeltaY = (bestY ? bestY.pos : groupNextY) - groupMinY;
+      setSnapGuides({ x: bestX?.line, y: bestY?.line });
       const candidate = current.map((screen) => {
         const origin = dragStart.origins[screen.id];
         return origin ? { ...screen, x: origin.x + snappedDeltaX, y: origin.y + snappedDeltaY } : screen;
@@ -1662,7 +1692,7 @@ export function TestPatternViewer({
     event.target.value = '';
     if (!file) return;
 
-    setImportStatus('Чтение NovaStar…');
+    setImportStatus(t('tpv.status.readingNovaStar'));
     try {
       // Сопоставляем кабинеты из файла с уже существующими в базе пресетами
       // (по brand+model, затем по разрешению) — повторный импорт того же
@@ -1671,7 +1701,7 @@ export function TestPatternViewer({
       // из самого файла — её нельзя подменять выбранным в базе пресетом,
       // иначе для некавадратных кабинетов (напр. 256×64) раскладка/пути
       // визуально разъедутся с реальным кабинетом.
-      const imported = await importNovaStarProject(file, presets);
+      const imported = await importNovaStarProject(file, presets, lang);
       // SRCX/SCR часто не содержат паспортные вес/мощность кабинета. Для
       // несматченных (новых) пресетов с такими "пустыми" значениями донором
       // веса/мощности служит кабинет, выбранный пользователем в базе —
@@ -1718,11 +1748,11 @@ export function TestPatternViewer({
       setSelectedScreenIds([]);
       window.requestAnimationFrame(() => fitScreensInWorkspace(allScreens));
       const matchedCount = imported.screens.filter((screen) => screen.matchedExistingPreset).length;
-      setImportStatus(`Импортировано экранов: ${screens.length}` +
-        (matchedCount > 0 ? ` · сопоставлено с базой: ${matchedCount}` : '') +
-        (newPresets.length > 0 ? ` · новых пресетов: ${newPresets.length}` : ''));
+      setImportStatus(t('tpv.status.importedScreens', { count: screens.length }) +
+        (matchedCount > 0 ? t('tpv.status.matchedWithLibrary', { count: matchedCount }) : '') +
+        (newPresets.length > 0 ? t('tpv.status.newPresets', { count: newPresets.length }) : ''));
     } catch (error) {
-      setImportStatus(error instanceof Error ? error.message : 'Не удалось импортировать файл NovaStar');
+      setImportStatus(error instanceof Error ? error.message : t('tpv.status.novaStarImportFailed'));
     }
   }
 
@@ -1892,7 +1922,7 @@ export function TestPatternViewer({
       const combined = await buildCombinedMaskCanvas(withMasks);
       if (combined) {
         files.push({
-          name: `${safeExportName('Общая маска')}-${combined.width}x${combined.height}.png`,
+          name: `${safeExportName(t('tpv.combinedMaskName'))}-${combined.width}x${combined.height}.png`,
           bytes: await canvasToPngBytes(combined)
         });
       }
@@ -1979,6 +2009,57 @@ export function TestPatternViewer({
   }
 
 
+  function wiringIssueMessages(issues: WiringIssue[]): string[] {
+    const limit = 3;
+    const messages = issues.slice(0, limit).map((issue) => {
+      switch (issue.kind) {
+        case 'unassigned': return t('tpv.check.unassigned', { count: issue.count, first: cabinetLabel(issue.first) });
+        case 'duplicate': return t('tpv.check.duplicate', { cabinet: cabinetLabel(issue.key), ports: issue.ports.join(', ') });
+        case 'missing': return t('tpv.check.missing', { cabinet: cabinetLabel(issue.key), port: issue.port });
+        case 'jump': return t('tpv.check.jump', { port: issue.port, from: cabinetLabel(issue.from), to: cabinetLabel(issue.to) });
+      }
+    });
+    if (issues.length > limit) messages.push(t('tpv.check.more', { count: issues.length - limit }));
+    return messages;
+  }
+
+  async function exportCabinetSchedule(): Promise<void> {
+    if (placedScreens.length === 0) {
+      setImportStatus(t('tpv.exportCsvNoScreens'));
+      return;
+    }
+    try {
+      const bytes = new TextEncoder().encode(buildCabinetScheduleCsv(exportScreens(), lang));
+      const filePath = await window.exportFiles.save(bytes, `${safeExportName(projectName)}-cabinets.csv`, 'csv');
+      setImportStatus(filePath ? t('tpv.exportCsvDone', { path: filePath }) : t('tpv.exportCsvCancelled'));
+    } catch (error) {
+      setImportStatus(error instanceof Error ? error.message : t('tpv.exportCsvFailed'));
+    }
+  }
+
+  async function exportResolume(): Promise<void> {
+    try {
+      const result = buildResolumeXml(projectName, exportScreens());
+      if (!result) {
+        setImportStatus(t('tpv.exportResolumeNoRoutes'));
+        return;
+      }
+      const filePath = await window.exportFiles.save(
+        new TextEncoder().encode(result.xml), `${safeExportName(projectName)}-resolume.xml`, 'xml'
+      );
+      if (!filePath) {
+        setImportStatus(t('tpv.exportCsvCancelled'));
+        return;
+      }
+      const warning = result.rotatedScreens.length > 0
+        ? ` ${t('tpv.exportResolumeRotated', { screens: result.rotatedScreens.join(', ') })}`
+        : '';
+      setImportStatus(`${t('tpv.exportResolumeDone', { path: filePath, screens: result.screens, slices: result.slices, width: result.compositionWidth, height: result.compositionHeight })}${warning}`);
+    } catch (error) {
+      setImportStatus(error instanceof Error ? error.message : t('tpv.exportResolumeFailed'));
+    }
+  }
+
   async function exportProjectPdf(): Promise<void> {
     if (placedScreens.length === 0) {
       setImportStatus('Добавьте хотя бы один экран для экспорта');
@@ -1990,7 +2071,7 @@ export function TestPatternViewer({
         selectedScreenIds.length === 0 || selectedScreenIds.includes(screen.id));
       const masks = await buildScreenMaskFiles(selectedPlaced);
       const filePath = await window.exportFiles.savePdf(
-        buildReportHtml(projectName, exportScreens()),
+        buildReportHtml(projectName, exportScreens(), lang, signal),
         `${safeExportName(projectName)}-report.pdf`,
         safeExportName(projectName),
         masks
@@ -2028,9 +2109,10 @@ export function TestPatternViewer({
     return source ? routeProcessor(
       source,
       autoRoutingOrder,
-      selectedDataPreset.resolutionX * selectedDataPreset.resolutionY
+      selectedDataPreset.resolutionX * selectedDataPreset.resolutionY,
+      signal
     ) : null;
-  }, [selectedDataScreen?.processor, selectedDataPreset, autoRoutingOrder, newControllerModel, newControllerSendingCards]);
+  }, [selectedDataScreen?.processor, selectedDataPreset, autoRoutingOrder, newControllerModel, newControllerSendingCards, signal]);
   const autoPowerSource = selectedDataScreen?.powerPlan ?? {
     voltage: 230,
     circuitBreakerAmps: 16,
@@ -2052,7 +2134,7 @@ export function TestPatternViewer({
         safetyMarginPercent: autoPowerSource.safetyMarginPercent,
         powerFactor: autoPowerSource.powerFactor,
         phases: autoPowerSource.phases
-      }, autoRoutingOrder, selectedDataPreset.maxPowerW, autoPowerCabinetLimit ?? undefined)
+      }, autoRoutingOrder, selectedDataPreset.maxPowerW, autoPowerCabinetLimit ?? undefined, (n) => t('pp.circuitName', { n }))
     : null, [
       selectedDataPreset,
       autoRoutingOrder,
@@ -2130,6 +2212,12 @@ export function TestPatternViewer({
           </button>
           <button type="button" disabled={placedScreens.length === 0} onClick={() => void exportProjectPdf()} title="Экспортировать PDF-отчёт по проекту">
             Экспорт PDF
+          </button>
+          <button type="button" disabled={placedScreens.length === 0} onClick={() => void exportCabinetSchedule()} title={t('tpv.exportCsvTitle')}>
+            {t('tpv.exportCsvLabel')}
+          </button>
+          <button type="button" disabled={placedScreens.length === 0} onClick={() => void exportResolume()} title={t('tpv.exportResolumeTitle')}>
+            Resolume XML
           </button>
         </div>
       </div>
@@ -2234,7 +2322,7 @@ export function TestPatternViewer({
             {!logoSource && <p className="field-hint">Загрузите логотип выше, чтобы применить эти настройки.</p>}
             <label>Позиция
               <select value={logoPosition} onChange={(e) => setLogoPosition(e.target.value as OverlayPosition)}>
-                {Object.entries(OVERLAY_POSITION_LABELS).map(([value, label]) => (
+                {Object.entries(overlayPositionLabels(t)).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
                 ))}
               </select>
@@ -2292,7 +2380,7 @@ export function TestPatternViewer({
                 }}
               >
                 <option value="-1">Пользовательские цвета</option>
-                {CHECKERBOARD_COLOR_PRESETS.map((preset, index) => <option key={preset.name} value={index}>{preset.name}</option>)}
+                {CHECKERBOARD_COLOR_PRESETS.map((preset, index) => <option key={preset.id} value={index}>{t(preset.nameKey)}</option>)}
               </select>
             </label>
             <div className="pattern-preset-preview" aria-label="Превью схемы">
@@ -2542,6 +2630,18 @@ export function TestPatternViewer({
                     </div>
                   </>
                 )}
+                <div className="data-signal-format">
+                  <label>{t('tpv.signal.bitDepth')}
+                    <select value={signal.bitDepth} onChange={(event) => onSignalChange({ ...signal, bitDepth: Number(event.target.value) as SignalFormat['bitDepth'] })}>
+                      {[8, 10, 12].map((bits) => <option key={bits} value={bits}>{bits} bit</option>)}
+                    </select>
+                  </label>
+                  <label>{t('tpv.signal.frameRate')}
+                    <select value={signal.frameRateHz} onChange={(event) => onSignalChange({ ...signal, frameRateHz: Number(event.target.value) })}>
+                      {[24, 25, 30, 50, 60, 120].map((fps) => <option key={fps} value={fps}>{fps} Hz</option>)}
+                    </select>
+                  </label>
+                </div>
                 <div className="data-port-list">
                   {dataPortsBySendingCard(selectedDataScreen.processor.ports).map((group) => (
                     <section className="sending-card-group" key={group.key}>
@@ -2549,7 +2649,9 @@ export function TestPatternViewer({
                       {group.ports.map((port) => {
                     const portIndex = selectedDataScreen.processor!.ports.indexOf(port);
                     const pixels = port.assignedCabinets.length * (selectedDataPreset?.resolutionX ?? 0) * (selectedDataPreset?.resolutionY ?? 0);
-                    const pixelLoad = port.maxPixels > 0 ? pixels / port.maxPixels : 0;
+                    const portLimit = portMaxPixels(port, signal);
+                    const pixelLoad = portLimit > 0 ? pixels / portLimit : 0;
+                    const maxFps = portMaxFrameRate(port, pixels, signal.bitDepth);
                     const cabinetLoad = port.maxCabinets ? port.assignedCabinets.length / port.maxCabinets : 0;
                     const loadPercent = Math.round(Math.max(pixelLoad, cabinetLoad) * 100);
                     const invalid = loadPercent > 100;
@@ -2565,7 +2667,7 @@ export function TestPatternViewer({
                           <b>Port {port.sourcePortName ?? port.portId}</b>
                           <em className={invalid ? 'is-overloaded' : ''}>{invalid ? `Перегрузка ${loadPercent}%` : `${loadPercent}%`}</em>
                         </span>
-                        <span className="data-port-stats">{port.assignedCabinets.length} каб. · {pixels.toLocaleString()} / {port.maxPixels.toLocaleString()} px</span>
+                        <span className="data-port-stats">{port.assignedCabinets.length} каб. · {pixels.toLocaleString()} / {portLimit.toLocaleString()} px{maxFps !== null && maxFps < 1000 ? ` · ≤${Math.floor(maxFps)} fps` : ''}</span>
                         <span className="data-port-meter" aria-label={`Загрузка ${loadPercent}%`}>
                           <i className={invalid ? 'is-overloaded' : ''} style={{ width: `${Math.min(loadPercent, 100)}%` }} />
                         </span>
@@ -2580,10 +2682,29 @@ export function TestPatternViewer({
                   const assigned = new Set(selectedDataScreen.processor?.ports.flatMap((port) => port.assignedCabinets) ?? []).size;
                   const pixelsPerCabinet = (selectedDataPreset?.resolutionX ?? 0) * (selectedDataPreset?.resolutionY ?? 0);
                   const overloaded = selectedDataScreen.processor?.ports.filter((port) =>
-                    port.assignedCabinets.length * pixelsPerCabinet > port.maxPixels ||
+                    port.assignedCabinets.length * pixelsPerCabinet > portMaxPixels(port, signal) ||
                     (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets)
                   ).length ?? 0;
-                  return <p className={`data-path-summary${assigned < installed || overloaded > 0 ? ' is-warning' : ''}`}>Назначено {assigned} из {installed} кабинетов{overloaded > 0 ? ` · перегружено портов: ${overloaded}` : ''}</p>;
+                  const canvasIssues = checkControllerCanvas(selectedDataScreen.processor, pixelsPerCabinet).filter((check) => !check.ok);
+                  const receiver = selectedDataPreset ? checkReceiverCard(selectedDataPreset, signal) : null;
+                  return (
+                    <>
+                      <p className={`data-path-summary${assigned < installed || overloaded > 0 ? ' is-warning' : ''}`}>Назначено {assigned} из {installed} кабинетов{overloaded > 0 ? ` · перегружено портов: ${overloaded}` : ''}</p>
+                      {wiringIssueMessages(validateWiring(selectedDataScreen.screenConfig, selectedDataScreen.processor)).map((message) => (
+                        <p key={message} className="data-path-summary is-warning">{message}</p>
+                      ))}
+                      {canvasIssues.map((check) => (
+                        <p key={check.controller} className="data-path-summary is-warning">
+                          {t('tpv.check.controllerCanvas', { controller: check.controller, pixels: check.pixels.toLocaleString(), limit: check.limit.toLocaleString() })}
+                        </p>
+                      ))}
+                      {receiver && !receiver.ok && (
+                        <p className="data-path-summary is-warning">
+                          {t('tpv.check.receiverCard', { card: receiver.card, width: selectedDataPreset!.resolutionX, height: selectedDataPreset!.resolutionY, limitWidth: receiver.limitWidth, limitHeight: receiver.limitHeight })}
+                        </p>
+                      )}
+                    </>
+                  );
                 })()}
               </>
             )}
@@ -2734,7 +2855,7 @@ export function TestPatternViewer({
                           const first = port.assignedCabinets[0]?.split('-').map(Number);
                           const last = port.assignedCabinets.at(-1)?.split('-').map(Number);
                           const portPixels = port.assignedCabinets.length * screenPreset.resolutionX * screenPreset.resolutionY;
-                          const overloaded = portPixels > port.maxPixels || (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets);
+                          const overloaded = portPixels > portMaxPixels(port, signal) || (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets);
                           const color = overloaded ? '#dc2626' : `hsl(${portIndex * 83} 78% 38%)`;
                           return (
                             <g key={port.portId} className={selectedPlacedScreenId === screen.id && activeDataPortId && activeDataPortId !== port.portId ? 'is-dimmed' : ''}>
@@ -2837,8 +2958,8 @@ export function TestPatternViewer({
                   <span className="screen-name-badge">{screen.name}</span>
                 </div>
               ))}
-              {snapGuides.x !== undefined && <div className="snap-guide is-vertical" style={{ left: snapGuides.x }} />}
-              {snapGuides.y !== undefined && <div className="snap-guide is-horizontal" style={{ top: snapGuides.y }} />}
+              {snapGuides.x !== undefined && <div className="snap-guide is-vertical" style={{ left: snapGuides.x, width: 1.5 / workspaceZoom }} />}
+              {snapGuides.y !== undefined && <div className="snap-guide is-horizontal" style={{ top: snapGuides.y, height: 1.5 / workspaceZoom }} />}
               {selectionRect && (
                 <div
                   className="selection-marquee"

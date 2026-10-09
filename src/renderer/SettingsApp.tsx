@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import type { CabinetPreset, PowerGridConfig, UiSkin } from '@shared/types';
+import type { Lang } from '@shared/lang';
 import { mergeUniquePresets, validatePreset } from '@shared/presetValidation';
+import { useLanguage } from './i18n/context';
 import './styles.css';
 
 const INITIAL_FORM = {
@@ -9,15 +11,15 @@ const INITIAL_FORM = {
   receiverCardName: ''
 };
 
-const UI_SKIN_OPTIONS: { id: UiSkin; label: string; accent: string; bg: string }[] = [
-  { id: 'vscode', label: 'VS Code', accent: '#007acc', bg: '#1e1e1e' },
-  { id: 'corporate', label: 'Корпоративный', accent: '#2e5a8f', bg: '#10151c' },
-  { id: 'midnight', label: 'Полночь', accent: '#5b8cff', bg: '#0c0e13' },
-  { id: 'carbon', label: 'Карбон', accent: '#7aa2ff', bg: '#0a0a0c' },
-  { id: 'graphite', label: 'Графит', accent: '#6ea8fe', bg: '#15171b' },
-  { id: 'ocean', label: 'Океан', accent: '#38bdf8', bg: '#07131a' },
-  { id: 'forest', label: 'Лес', accent: '#4ade80', bg: '#0a130e' },
-  { id: 'plum', label: 'Слива', accent: '#c77dff', bg: '#110b16' }
+const UI_SKIN_OPTIONS: { id: UiSkin; labelKey: string; accent: string; bg: string }[] = [
+  { id: 'vscode', labelKey: 'settings.skin.vscode', accent: '#007acc', bg: '#1e1e1e' },
+  { id: 'corporate', labelKey: 'settings.skin.corporate', accent: '#2e5a8f', bg: '#10151c' },
+  { id: 'midnight', labelKey: 'settings.skin.midnight', accent: '#5b8cff', bg: '#0c0e13' },
+  { id: 'carbon', labelKey: 'settings.skin.carbon', accent: '#7aa2ff', bg: '#0a0a0c' },
+  { id: 'graphite', labelKey: 'settings.skin.graphite', accent: '#6ea8fe', bg: '#15171b' },
+  { id: 'ocean', labelKey: 'settings.skin.ocean', accent: '#38bdf8', bg: '#07131a' },
+  { id: 'forest', labelKey: 'settings.skin.forest', accent: '#4ade80', bg: '#0a130e' },
+  { id: 'plum', labelKey: 'settings.skin.plum', accent: '#c77dff', bg: '#110b16' }
 ];
 
 interface SettingsAppProps {
@@ -28,9 +30,15 @@ interface SettingsAppProps {
   onGridConfigChange: (config: PowerGridConfig) => void;
   uiSkin: UiSkin;
   onUiSkinChange: (skin: UiSkin) => void;
+  lang: Lang;
+  onLangChange: (lang: Lang) => void;
 }
 
-export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, gridConfig, onGridConfigChange, uiSkin, onUiSkinChange }: SettingsAppProps): JSX.Element {
+export function SettingsApp({
+  onBack, onPresetsChange, presets: initialPresets, gridConfig, onGridConfigChange,
+  uiSkin, onUiSkinChange, lang, onLangChange
+}: SettingsAppProps): JSX.Element {
+  const { t } = useLanguage();
   const [presets, setPresets] = useState<CabinetPreset[]>(initialPresets);
   const [form, setForm] = useState(INITIAL_FORM);
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
@@ -66,7 +74,7 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
   function persist(next: CabinetPreset[]): void {
     setPresets(next);
     onPresetsChange?.(next);
-    void window.presetFiles.save(next).catch((error) => setStatus(error instanceof Error ? error.message : 'Ошибка сохранения'));
+    void window.presetFiles.save(next).catch((error) => setStatus(error instanceof Error ? error.message : t('settings.library.saveError')));
   }
 
   function addPreset(event: React.FormEvent): void {
@@ -80,7 +88,7 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
       model: form.model.trim(),
       receiverCardName: form.receiverCardName.trim() || undefined
     };
-    const errors = validatePreset(preset);
+    const errors = validatePreset(preset, lang);
     if (errors.length) {
       setStatus(errors.join('; '));
       return;
@@ -88,18 +96,18 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
     try {
       if (editingPresetId) {
         const others = presets.filter((item) => item.id !== editingPresetId);
-        persist(mergeUniquePresets(others, [preset]));
+        persist(mergeUniquePresets(others, [preset], { lang }));
       } else {
-        persist(mergeUniquePresets(presets, [preset]));
+        persist(mergeUniquePresets(presets, [preset], { lang }));
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Дубликат пресета');
+      setStatus(error instanceof Error ? error.message : t('settings.library.duplicate'));
       return;
     }
     setForm(INITIAL_FORM);
     setEditingPresetId(null);
     setDimensionsTouched({ width: false, height: false });
-    setStatus(editingPresetId ? 'Кабинет обновлён' : 'Кабинет добавлен');
+    setStatus(editingPresetId ? t('settings.library.presetUpdated') : t('settings.library.presetAdded'));
   }
 
   function editPreset(preset: CabinetPreset): void {
@@ -121,17 +129,17 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
     // ручная правка) — считаем их осознанным значением и не перезаписываем
     // при последующих правках разрешения/шага пикселя в этой сессии редактирования.
     setDimensionsTouched({ width: true, height: true });
-    setStatus(`Редактирование: ${preset.brand} ${preset.model}`);
+    setStatus(t('settings.library.editing', { brand: preset.brand, model: preset.model }));
   }
 
   async function importPresetFile(): Promise<void> {
     try {
       const imported = await window.presetFiles.import();
       if (!imported) return;
-      persist(mergeUniquePresets(presets, imported));
-      setStatus(`Импортировано: ${imported.length}`);
+      persist(mergeUniquePresets(presets, imported, { lang }));
+      setStatus(t('settings.library.imported', { count: imported.length }));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Ошибка импорта');
+      setStatus(error instanceof Error ? error.message : t('settings.library.importError'));
     }
   }
 
@@ -139,31 +147,31 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
     try {
       const imported = await window.presetFiles.importRcfg();
       if (!imported) return;
-      persist(mergeUniquePresets(presets, [imported]));
-      setStatus(`Импортирован RCFG: ${imported.brand} ${imported.model}. Проверьте вес и мощность.`);
+      persist(mergeUniquePresets(presets, [imported], { lang }));
+      setStatus(t('settings.library.importedRcfg', { brand: imported.brand, model: imported.model }));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Ошибка импорта RCFG');
+      setStatus(error instanceof Error ? error.message : t('settings.library.importRcfgError'));
     }
   }
 
   async function exportPresetFile(): Promise<void> {
     try {
       const filePath = await window.presetFiles.export(presets);
-      if (filePath) setStatus(`Экспортировано: ${filePath}`);
+      if (filePath) setStatus(t('settings.library.exported', { path: filePath }));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Ошибка экспорта');
+      setStatus(error instanceof Error ? error.message : t('settings.library.exportError'));
     }
   }
 
   return (
     <main className="settings-app">
       <header className="settings-header">
-        <div><div className="brand">DL_SCREEN MASTER</div><p>Настройки приложения</p></div>
-        {onBack && <button type="button" onClick={onBack}>Вернуться к редактору</button>}
+        <div><div className="brand">DL_SCREEN MASTER</div><p>{t('settings.subtitle')}</p></div>
+        {onBack && <button type="button" onClick={onBack}>{t('settings.back')}</button>}
       </header>
       <section className="settings-section">
-        <h1>Оформление</h1>
-        <p className="field-hint">Цветовая тема интерфейса (DreamLaser Design System). Применяется сразу и сохраняется между запусками.</p>
+        <h1>{t('settings.appearance.title')}</h1>
+        <p className="field-hint">{t('settings.appearance.hint')}</p>
         <div className="skin-picker">
           {UI_SKIN_OPTIONS.map((skin) => (
             <button
@@ -174,21 +182,33 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
               style={{ '--skin-bg': skin.bg, '--skin-accent': skin.accent } as React.CSSProperties}
             >
               <i />
-              <span>{skin.label}</span>
+              <span>{t(skin.labelKey)}</span>
             </button>
           ))}
         </div>
       </section>
       <section className="settings-section">
-        <h1>Электросеть</h1>
+        <h1>{t('settings.language.title')}</h1>
+        <p className="field-hint">{t('settings.language.hint')}</p>
+        <div className="skin-picker">
+          <button type="button" className={lang === 'ru' ? 'is-active' : ''} onClick={() => onLangChange('ru')}>
+            <span>{t('settings.language.ru')}</span>
+          </button>
+          <button type="button" className={lang === 'en' ? 'is-active' : ''} onClick={() => onLangChange('en')}>
+            <span>{t('settings.language.en')}</span>
+          </button>
+        </div>
+      </section>
+      <section className="settings-section">
+        <h1>{t('settings.grid.title')}</h1>
         <div className="grid-settings-form">
           <label>
-            {gridConfig.phase === 'three' ? 'Линейное напряжение, В' : 'Напряжение, В'}
+            {gridConfig.phase === 'three' ? t('settings.grid.voltageThreePhase') : t('settings.grid.voltageSinglePhase')}
             <input type="number" min={1} value={gridConfig.voltage} onChange={(event) => onGridConfigChange({ ...gridConfig, voltage: Number(event.target.value) })} />
           </label>
-          {gridConfig.phase === 'three' && <p className="field-hint">Для сети 400/230 В укажите 400 В.</p>}
+          {gridConfig.phase === 'three' && <p className="field-hint">{t('settings.grid.voltageHint')}</p>}
           <label>
-            Фаза
+            {t('settings.grid.phase')}
             <select value={gridConfig.phase} onChange={(event) => {
               const phase = event.target.value as 'single' | 'three';
               const voltage = phase === 'three' && gridConfig.voltage === 230
@@ -196,33 +216,33 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
                 : phase === 'single' && gridConfig.voltage === 400 ? 230 : gridConfig.voltage;
               onGridConfigChange({ ...gridConfig, phase, voltage });
             }}>
-              <option value="single">Однофазная</option>
-              <option value="three">Трёхфазная</option>
+              <option value="single">{t('settings.grid.phase.single')}</option>
+              <option value="three">{t('settings.grid.phase.three')}</option>
             </select>
           </label>
           <label>
-            Коэффициент мощности (cos φ)
+            {t('settings.grid.powerFactor')}
             <input type="number" min={0.01} max={1} step={0.01} value={gridConfig.powerFactor} onChange={(event) => onGridConfigChange({ ...gridConfig, powerFactor: Number(event.target.value) })} />
           </label>
           <label>
-            Номинал автомата, А
+            {t('settings.grid.breakerAmps')}
             <input type="number" min={1} value={gridConfig.circuitBreakerAmps} onChange={(event) => onGridConfigChange({ ...gridConfig, circuitBreakerAmps: Number(event.target.value) })} />
           </label>
         </div>
       </section>
       <section className="settings-section">
-        <h1>Библиотека экранов</h1>
-        <p className="field-hint">Кабинетов в базе: {presets.length}. Изменения сразу отображаются в основном окне.</p>
+        <h1>{t('settings.library.title')}</h1>
+        <p className="field-hint">{t('settings.library.hint', { count: presets.length })}</p>
         <div className="preset-file-actions">
-          <button type="button" onClick={() => void importRcfgFile()}>Импорт RCFG / RCFGX</button>
-          <button type="button" onClick={() => void importPresetFile()}>Импорт JSON</button>
-          <button type="button" onClick={() => void exportPresetFile()} disabled={presets.length === 0}>Экспорт JSON</button>
+          <button type="button" onClick={() => void importRcfgFile()}>{t('settings.library.importRcfg')}</button>
+          <button type="button" onClick={() => void importPresetFile()}>{t('settings.library.importJson')}</button>
+          <button type="button" onClick={() => void exportPresetFile()} disabled={presets.length === 0}>{t('settings.library.exportJson')}</button>
           <button type="button" className="danger-button" onClick={() => {
-            if (presets.length === 0 || window.confirm('Удалить все пользовательские кабинеты из базы?')) {
+            if (presets.length === 0 || window.confirm(t('settings.library.clearConfirm'))) {
               persist([]);
-              setStatus('Пользовательская база кабинетов очищена');
+              setStatus(t('settings.library.cleared'));
             }
-          }} disabled={presets.length === 0}>Очистить базу</button>
+          }} disabled={presets.length === 0}>{t('settings.library.clear')}</button>
           {status && <span role="status">{status}</span>}
         </div>
         {presets.length > 0 && (
@@ -231,12 +251,16 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
               <div className="preset-item" key={preset.id}>
                 <span>
                   <strong>{preset.brand} {preset.model}</strong><br />
-                  {preset.widthMm} × {preset.heightMm} мм · {preset.resolutionX} × {preset.resolutionY} px · pitch {preset.pixelPitchMm} мм
-                  {preset.receiverCardName && <small>Приёмная карта: {preset.receiverCardName}</small>}
+                  {t('settings.library.presetSummary', {
+                    width: preset.widthMm, height: preset.heightMm,
+                    resolutionX: preset.resolutionX, resolutionY: preset.resolutionY,
+                    pitch: preset.pixelPitchMm
+                  })}
+                  {preset.receiverCardName && <small>{t('settings.library.receiverCard', { name: preset.receiverCardName })}</small>}
                 </span>
                 <span className="preset-item-actions">
-                  <button type="button" onClick={() => editPreset(preset)}>Редактировать</button>
-                  <button type="button" onClick={() => persist(presets.filter((item) => item.id !== preset.id))}>Удалить</button>
+                  <button type="button" onClick={() => editPreset(preset)}>{t('settings.library.edit')}</button>
+                  <button type="button" onClick={() => persist(presets.filter((item) => item.id !== preset.id))}>{t('settings.library.delete')}</button>
                 </span>
               </div>
             ))}
@@ -244,21 +268,21 @@ export function SettingsApp({ onBack, onPresetsChange, presets: initialPresets, 
         )}
       </section>
       <section className="settings-section">
-        <h2>{editingPresetId ? 'Редактировать кабинет' : 'Добавить кабинет'}</h2>
+        <h2>{editingPresetId ? t('settings.form.editTitle') : t('settings.form.addTitle')}</h2>
         <form className="preset-form" onSubmit={addPreset}>
-          <label>Бренд<input required value={form.brand} onChange={(e) => updateField('brand', e.target.value)} /></label>
-          <label>Модель<input required value={form.model} onChange={(e) => updateField('model', e.target.value)} /></label>
-          <label>Шаг пикселя, мм<input type="number" step="0.1" value={form.pixelPitchMm} onChange={(e) => updateField('pixelPitchMm', e.target.value)} /></label>
-          <label>Разрешение X, px<input type="number" value={form.resolutionX} onChange={(e) => updateField('resolutionX', e.target.value)} /></label>
-          <label>Разрешение Y, px<input type="number" value={form.resolutionY} onChange={(e) => updateField('resolutionY', e.target.value)} /></label>
-          <label>Ширина, мм<input type="number" value={form.widthMm} onChange={(e) => updateField('widthMm', e.target.value)} title="По умолчанию = Разрешение X × Шаг пикселя, можно задать вручную (напр. с учётом рамки)" /></label>
-          <label>Высота, мм<input type="number" value={form.heightMm} onChange={(e) => updateField('heightMm', e.target.value)} title="По умолчанию = Разрешение Y × Шаг пикселя, можно задать вручную (напр. с учётом рамки)" /></label>
-          <label>Вес, кг<input type="number" step="0.1" value={form.weightKg} onChange={(e) => updateField('weightKg', e.target.value)} /></label>
-          <label>Макс. мощность, Вт<input type="number" value={form.maxPowerW} onChange={(e) => updateField('maxPowerW', e.target.value)} /></label>
-          <label>Средняя мощность, Вт<input type="number" value={form.avgPowerW} onChange={(e) => updateField('avgPowerW', e.target.value)} /></label>
+          <label>{t('settings.form.brand')}<input required value={form.brand} onChange={(e) => updateField('brand', e.target.value)} /></label>
+          <label>{t('settings.form.model')}<input required value={form.model} onChange={(e) => updateField('model', e.target.value)} /></label>
+          <label>{t('settings.form.pixelPitch')}<input type="number" step="0.1" value={form.pixelPitchMm} onChange={(e) => updateField('pixelPitchMm', e.target.value)} /></label>
+          <label>{t('settings.form.resolutionX')}<input type="number" value={form.resolutionX} onChange={(e) => updateField('resolutionX', e.target.value)} /></label>
+          <label>{t('settings.form.resolutionY')}<input type="number" value={form.resolutionY} onChange={(e) => updateField('resolutionY', e.target.value)} /></label>
+          <label>{t('settings.form.widthMm')}<input type="number" value={form.widthMm} onChange={(e) => updateField('widthMm', e.target.value)} title={t('settings.form.widthMmHint')} /></label>
+          <label>{t('settings.form.heightMm')}<input type="number" value={form.heightMm} onChange={(e) => updateField('heightMm', e.target.value)} title={t('settings.form.heightMmHint')} /></label>
+          <label>{t('settings.form.weightKg')}<input type="number" step="0.1" value={form.weightKg} onChange={(e) => updateField('weightKg', e.target.value)} /></label>
+          <label>{t('settings.form.maxPowerW')}<input type="number" value={form.maxPowerW} onChange={(e) => updateField('maxPowerW', e.target.value)} /></label>
+          <label>{t('settings.form.avgPowerW')}<input type="number" value={form.avgPowerW} onChange={(e) => updateField('avgPowerW', e.target.value)} /></label>
           <div className="preset-form-actions">
-            <button type="submit">{editingPresetId ? 'Сохранить изменения' : 'Добавить кабинет'}</button>
-            {editingPresetId && <button type="button" onClick={() => { setEditingPresetId(null); setForm(INITIAL_FORM); setDimensionsTouched({ width: false, height: false }); setStatus(''); }}>Отмена</button>}
+            <button type="submit">{editingPresetId ? t('settings.form.saveChanges') : t('settings.form.addCabinet')}</button>
+            {editingPresetId && <button type="button" onClick={() => { setEditingPresetId(null); setForm(INITIAL_FORM); setDimensionsTouched({ width: false, height: false }); setStatus(''); }}>{t('settings.form.cancel')}</button>}
           </div>
         </form>
       </section>

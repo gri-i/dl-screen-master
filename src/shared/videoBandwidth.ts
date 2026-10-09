@@ -28,8 +28,7 @@ export const VIDEO_INTERFACE_MODES: VideoInterfaceMode[] = [
     family: 'HDMI',
     label: 'HDMI 2.2 Ultra96',
     rawGbps: 96,
-    payloadGbps: 85.33,
-    note: 'Полезная полоса оценена с эффективностью FRL 16/18.'
+    payloadGbps: 85.33
   },
   { id: 'dp-1.1', family: 'DisplayPort', label: 'DisplayPort 1.1 HBR', rawGbps: 10.8, payloadGbps: 8.64 },
   { id: 'dp-1.2', family: 'DisplayPort', label: 'DisplayPort 1.2 HBR2', rawGbps: 21.6, payloadGbps: 17.28 },

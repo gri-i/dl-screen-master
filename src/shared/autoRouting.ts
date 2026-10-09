@@ -1,4 +1,5 @@
-import type { PowerCircuit, PowerPhase, PowerPlan, Processor } from './types';
+import type { PowerCircuit, PowerPhase, PowerPlan, Processor, SignalFormat } from './types';
+import { DEFAULT_SIGNAL, portMaxPixels } from './capacity';
 import { usablePowerPerPortW } from './powerLimits';
 
 export type RoutingPattern = 'snake-rows' | 'snake-columns' | 'rows' | 'columns' | 'center';
@@ -64,14 +65,19 @@ export function generateCabinetOrder(
   return reverse ? keys.reverse() : keys;
 }
 
-export function routeProcessor(processor: Processor, order: string[], pixelsPerCabinet: number): Processor {
+export function routeProcessor(
+  processor: Processor,
+  order: string[],
+  pixelsPerCabinet: number,
+  signal: SignalFormat = DEFAULT_SIGNAL
+): Processor {
   let cursor = 0;
   return {
     ...processor,
     ports: processor.ports.map((port) => {
       const capacity = Math.max(0, Math.min(
         port.maxCabinets ?? Number.POSITIVE_INFINITY,
-        Math.floor(port.maxPixels / Math.max(1, pixelsPerCabinet))
+        Math.floor(portMaxPixels(port, signal) / Math.max(1, pixelsPerCabinet))
       ));
       const assignedCabinets = order.slice(cursor, cursor + capacity);
       cursor += assignedCabinets.length;
@@ -92,7 +98,8 @@ export function generatePowerPlan(
   source: Omit<PowerPlan, 'circuits'>,
   order: string[],
   cabinetMaxPowerW: number,
-  maxCabinetsPerCircuit?: number
+  maxCabinetsPerCircuit?: number,
+  circuitName: (n: number) => string = (n) => `Цепь ${n}`
 ): PowerPlan {
   const usablePowerW = usablePowerPerPortW(source.voltage, source.circuitBreakerAmps, source.safetyMarginPercent, source.powerFactor);
   const autoCapacity = Math.max(1, Math.floor(usablePowerW / Math.max(.001, cabinetMaxPowerW)));
@@ -101,7 +108,7 @@ export function generatePowerPlan(
   const phases: PowerPhase[] = source.phases === 3 ? ['L1', 'L2', 'L3'] : ['L1'];
   const circuits: PowerCircuit[] = Array.from({ length: circuitCount }, (_, index) => ({
     id: crypto.randomUUID(),
-    name: `Цепь ${index + 1}`,
+    name: circuitName(index + 1),
     phase: phases[index % phases.length],
     assignedCabinets: order.slice(index * capacity, (index + 1) * capacity)
   }));

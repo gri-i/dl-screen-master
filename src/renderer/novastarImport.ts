@@ -1,7 +1,31 @@
 import { strFromU8, unzipSync } from 'fflate';
 import type { CabinetPreset, Processor, ProcessorPort } from '@shared/types';
+import type { Lang } from '@shared/lang';
 import { matchExistingPreset } from '@shared/presetValidation';
 import type { ScreenConfig } from './components/PowerCalculator';
+
+const MESSAGES: Record<Lang, {
+  dsciNoTable: string;
+  noScenes: string;
+  unsupportedFormat: string;
+  sceneParseFailed: (name: string) => string;
+  noCabinets: string;
+}> = {
+  ru: {
+    dsciNoTable: 'Файл SCR распознан как NovaLCT DSCI, но таблица кабинетов не найдена',
+    noScenes: 'В файле не найдены XML-сцены NovaStar с CabinetInfo',
+    unsupportedFormat: 'Формат NovaStar не поддержан: нужен .srcx/.scr архив со сценами или XML-файл с CabinetInfo',
+    sceneParseFailed: (name) => `Не удалось прочитать ${name}`,
+    noCabinets: 'В файле NovaStar нет кабинетов для импорта'
+  },
+  en: {
+    dsciNoTable: 'The SCR file looks like a NovaLCT DSCI file, but no cabinet table was found',
+    noScenes: 'No NovaStar XML scenes with CabinetInfo were found in the file',
+    unsupportedFormat: 'Unsupported NovaStar format: expected a .srcx/.scr scene archive or an XML file with CabinetInfo',
+    sceneParseFailed: (name) => `Failed to parse ${name}`,
+    noCabinets: 'The NovaStar file has no cabinets to import'
+  }
+};
 
 export interface ImportedNovaStarScreen {
   name: string;
@@ -309,7 +333,7 @@ function buildDscImport(fileName: string, bytes: Uint8Array, headers: DscScreenH
   return { screens, presets: Array.from(presets.values()) };
 }
 
-function importNovaStarDsc(fileName: string, bytes: Uint8Array): {
+function importNovaStarDsc(fileName: string, bytes: Uint8Array, lang: Lang): {
   screens: ImportedNovaStarScreen[];
   presets: CabinetPreset[];
 } | null {
@@ -317,7 +341,7 @@ function importNovaStarDsc(fileName: string, bytes: Uint8Array): {
 
   const recordTable = findDscRecordStart(bytes);
   if (!recordTable) {
-    throw new Error('Файл SCR распознан как NovaLCT DSCI, но таблица кабинетов не найдена');
+    throw new Error(MESSAGES[lang].dsciNoTable);
   }
   const { recordStart } = recordTable;
   let bestCount = recordTable.count;
@@ -390,7 +414,7 @@ function importNovaStarDsc(fileName: string, bytes: Uint8Array): {
   };
 }
 
-function readNovaStarScenes(bytes: Uint8Array, fileName: string): NovaStarSceneSource[] {
+function readNovaStarScenes(bytes: Uint8Array, fileName: string, lang: Lang): NovaStarSceneSource[] {
   try {
     const archive = unzipSync(bytes);
     let sceneNames = Object.keys(archive)
@@ -402,35 +426,35 @@ function readNovaStarScenes(bytes: Uint8Array, fileName: string): NovaStarSceneS
         .filter((name) => /<CabinetInfo[\s>]/i.test(decodeText(archive[name])))
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     }
-    if (sceneNames.length === 0) throw new Error('В файле не найдены XML-сцены NovaStar с CabinetInfo');
+    if (sceneNames.length === 0) throw new Error(MESSAGES[lang].noScenes);
     return sceneNames.map((name) => ({ name, xml: decodeText(archive[name]) }));
   } catch (error) {
     const rawText = decodeText(bytes);
     if (/^\s*</.test(rawText) && /<CabinetInfo[\s>]/i.test(rawText)) {
       return [{ name: fileBaseName(fileName), xml: rawText }];
     }
-    throw error instanceof Error && error.message === 'В файле не найдены XML-сцены NovaStar с CabinetInfo'
+    throw error instanceof Error && error.message === MESSAGES[lang].noScenes
       ? error
-      : new Error('Формат NovaStar не поддержан: нужен .srcx/.scr архив со сценами или XML-файл с CabinetInfo');
+      : new Error(MESSAGES[lang].unsupportedFormat);
   }
 }
 
-export async function importNovaStarProject(file: File, existingPresets: CabinetPreset[] = []): Promise<{
+export async function importNovaStarProject(file: File, existingPresets: CabinetPreset[] = [], lang: Lang = 'ru'): Promise<{
   screens: ImportedNovaStarScreen[];
   presets: CabinetPreset[];
 }> {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const binaryImport = importNovaStarDsc(file.name, bytes);
+  const binaryImport = importNovaStarDsc(file.name, bytes, lang);
   if (binaryImport) return binaryImport;
 
-  const sceneSources = readNovaStarScenes(bytes, file.name);
+  const sceneSources = readNovaStarScenes(bytes, file.name, lang);
   const parser = new DOMParser();
   const presetsById = new Map<string, CabinetPreset>();
   const screens: ImportedNovaStarScreen[] = [];
 
   for (const scene of sceneSources) {
     const document = parser.parseFromString(scene.xml, 'application/xml');
-    if (document.querySelector('parsererror')) throw new Error(`Не удалось прочитать ${scene.name}`);
+    if (document.querySelector('parsererror')) throw new Error(MESSAGES[lang].sceneParseFailed(scene.name));
     const cabinets = Array.from(document.getElementsByTagName('CabinetInfo'));
     if (cabinets.length === 0) continue;
 
@@ -544,7 +568,7 @@ export async function importNovaStarProject(file: File, existingPresets: Cabinet
     });
   }
 
-  if (screens.length === 0) throw new Error('В файле NovaStar нет кабинетов для импорта');
+  if (screens.length === 0) throw new Error(MESSAGES[lang].noCabinets);
   return { screens: mergeScreensBySendingCard(screens), presets: Array.from(presetsById.values()) };
 }
 
