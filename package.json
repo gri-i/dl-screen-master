@@ -1,7 +1,7 @@
 {
   "name": "dl-screen-master",
   "productName": "DL_SCREEN MASTER",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DL_SCREEN MASTER — проектирование и настройка LED-экранов",
   "main": "dist/main/main.js",
   "author": "DL_SCREEN MASTER",
