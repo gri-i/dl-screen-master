@@ -1,7 +1,7 @@
 import type { CabinetPreset, PowerCircuit, PowerPlan, Processor, ProcessorPort, SignalFormat } from '@shared/types';
-import { DEFAULT_SIGNAL, portMaxPixels } from '@shared/capacity';
+import { DEFAULT_SIGNAL, portLoad, portMaxPixels } from '@shared/capacity';
 import type { Lang } from '@shared/lang';
-import { usablePowerPerPortW } from '@shared/powerLimits';
+import { circuitLoad, routeColor, usablePowerPerPortW } from '@shared/powerLimits';
 
 const MESSAGES = {
   ru: {
@@ -15,11 +15,11 @@ const MESSAGES = {
     overloaded: 'Перегрузка',
     ok: 'В норме',
     cabinetsCaption: 'Кабинеты: col-row, координаты от 0. Последовательность указана отдельно для каждого порта.',
-    signalHeaders: ['Sending card', 'Модель', 'Порт', 'Каб.', 'Пикселей', 'Лимит, px', 'Состояние', 'Порядок: кабинет'],
+    signalHeaders: ['', 'Sending card', 'Модель', 'Порт', 'Каб.', 'Пикселей', 'Лимит, px', 'Загрузка', 'Макс. fps', 'Состояние', 'Порядок: кабинет'],
     noSignalPaths: 'Сигнальные пути не назначены.',
     powerSummary: (voltage: number, amps: number, margin: number, pf: number, phases: number) =>
       `Напряжение: ${voltage} В · автомат: ${amps} А · запас: ${margin}% · cos φ: ${pf} · фаз: ${phases}`,
-    powerHeaders: ['Цепь', 'Фаза', 'Каб.', 'Мощность, Вт', 'Лимит, Вт', 'Ток, А', 'Состояние', 'Порядок: кабинет'],
+    powerHeaders: ['', 'Цепь', 'Фаза', 'Каб.', 'Мощность, Вт', 'Лимит, Вт', 'Загрузка', 'Ток, А', 'Состояние', 'Порядок: кабинет'],
     noPowerPaths: 'Силовые пути не назначены.',
     detailHeaders: ['Параметр', 'Значение'],
     cabinetParam: 'Кабинет',
@@ -48,11 +48,11 @@ const MESSAGES = {
     overloaded: 'Overloaded',
     ok: 'OK',
     cabinetsCaption: 'Cabinets: col-row, 0-based coordinates. The sequence is listed separately for each port.',
-    signalHeaders: ['Sending card', 'Model', 'Port', 'Cab.', 'Pixels', 'Limit, px', 'Status', 'Order: cabinet'],
+    signalHeaders: ['', 'Sending card', 'Model', 'Port', 'Cab.', 'Pixels', 'Limit, px', 'Load', 'Max fps', 'Status', 'Order: cabinet'],
     noSignalPaths: 'No signal paths assigned.',
     powerSummary: (voltage: number, amps: number, margin: number, pf: number, phases: number) =>
       `Voltage: ${voltage} V · breaker: ${amps} A · margin: ${margin}% · cos φ: ${pf} · phases: ${phases}`,
-    powerHeaders: ['Circuit', 'Phase', 'Cab.', 'Power, W', 'Limit, W', 'Current, A', 'Status', 'Order: cabinet'],
+    powerHeaders: ['', 'Circuit', 'Phase', 'Cab.', 'Power, W', 'Limit, W', 'Load', 'Current, A', 'Status', 'Order: cabinet'],
     noPowerPaths: 'No power paths assigned.',
     detailHeaders: ['Parameter', 'Value'],
     cabinetParam: 'Cabinet',
@@ -252,6 +252,12 @@ export function buildScreenSvg(screen: ExportScreen, mode: 'signal' | 'power' = 
     }).join('')
   ).join('');
 
+  // Заливка кабинетов цветом порта/цепи (50% прозрачности).
+  const portFills = (routes ?? []).map((port, index) => port.assignedCabinets.map((key) => {
+    const [col, row] = key.split('-').map(Number);
+    return `<rect x="${col * cellWidth}" y="${row * cellHeight}" width="${cellWidth}" height="${cellHeight}" fill="hsl(${index * 83} 78% 55%)" fill-opacity=".5"/>`;
+  }).join('')).join('');
+
   const paths = routes?.map((port, index) => {
     const centers = port.assignedCabinets.map((key) => {
       const [col, row] = key.split('-').map(Number);
@@ -298,25 +304,35 @@ export function buildScreenSvg(screen: ExportScreen, mode: 'signal' | 'power' = 
     }).join('')
   ).join('');
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#0b1117"/><title>${escapeXml(screen.name)}</title>${cabinetBodies}${paths}${labels}<rect x="0" y="0" width="${width}" height="${height}" fill="none" stroke="#000" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#0b1117"/><title>${escapeXml(screen.name)}</title>${cabinetBodies}${portFills}${paths}${labels}<rect x="0" y="0" width="${width}" height="${height}" fill="none" stroke="#000" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
 export function buildReportHtml(projectName: string, screens: ExportScreen[], lang: Lang = 'ru', signal: SignalFormat = DEFAULT_SIGNAL): string {
   const m = MESSAGES[lang];
-  const table = (headers: string[], rows: unknown[][]): string => `<table><thead><tr>${headers.map((value) => `<th>${escapeXml(value)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((value) => `<td>${escapeXml(String(value ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const table = (headers: string[], rows: unknown[][]): string => `<table><thead><tr>${headers.map((value) => `<th>${escapeXml(value)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((value) => typeof value === 'object' && value !== null && 'html' in value ? `<td>${(value as { html: string }).html}</td>` : `<td>${escapeXml(String(value ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   const details = screens.map((screen) => {
     const caption = escapeXml(screen.name);
     const count = cabinetCount(screen);
     const ports = screen.processor?.ports ?? [];
     const plan = screen.powerPlan;
     const limit = plan ? usablePowerPerPortW(plan.voltage, plan.circuitBreakerAmps, plan.safetyMarginPercent, plan.powerFactor) : 0;
-    const signalRows = ports.map((port) => {
-      const pixels = port.assignedCabinets.length * screen.preset.resolutionX * screen.preset.resolutionY;
-      return [port.controllerId ?? '', port.controllerName ?? screen.processor?.model ?? '', port.sourcePortName ?? port.portId, port.assignedCabinets.length, pixels, portMaxPixels(port, signal), pixels > portMaxPixels(port, signal) || (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets) ? m.overloaded : m.ok, port.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
+    const pixelsPerCabinet = screen.preset.resolutionX * screen.preset.resolutionY;
+    const signalRows = ports.map((port, portIndex) => {
+      const load = portLoad(port, pixelsPerCabinet, signal);
+      const color = `hsl(${portIndex * 83} 78% 55%)`;
+      const barColor = load.status === 'over' ? '#dc2626' : load.status === 'tight' ? '#d98e04' : color;
+      const swatch = { html: `<span class="swatch" style="background:${color}"></span>` };
+      const bar = { html: `<span class="load is-${load.status}"><span class="load-bar"><i style="width:${Math.min(load.percent, 100)}%;background:${barColor}"></i></span><b>${load.percent}%</b></span>` };
+      const fps = load.maxFrameRateHz !== null && load.maxFrameRateHz < 1000 ? Math.floor(load.maxFrameRateHz) : '';
+      return [swatch, port.controllerId ?? '', port.controllerName ?? screen.processor?.model ?? '', port.sourcePortName ?? port.portId, port.assignedCabinets.length, load.pixels, load.limitPx, bar, fps, load.status === 'over' || (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets) ? m.overloaded : m.ok, port.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
     });
-    const powerRows = (plan?.circuits ?? []).map((circuit) => {
-      const watts = circuit.assignedCabinets.length * screen.preset.maxPowerW;
-      return [circuit.name, circuit.phase, circuit.assignedCabinets.length, watts.toFixed(2), limit.toFixed(2), (watts / Math.max(1, plan!.voltage * plan!.powerFactor)).toFixed(2), watts > limit ? m.overloaded : m.ok, circuit.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
+    const powerRows = (plan?.circuits ?? []).map((circuit, circuitIndex) => {
+      const { watts, percent, status } = circuitLoad(circuit.assignedCabinets.length, screen.preset.maxPowerW, limit);
+      const color = routeColor(circuitIndex);
+      const barColor = status === 'over' ? '#dc2626' : status === 'tight' ? '#d98e04' : color;
+      const swatch = { html: `<span class="swatch" style="background:${color}"></span>` };
+      const bar = { html: `<span class="load is-${status}"><span class="load-bar"><i style="width:${Math.min(percent, 100)}%;background:${barColor}"></i></span><b>${percent}%</b></span>` };
+      return [swatch, circuit.name, circuit.phase, circuit.assignedCabinets.length, watts.toFixed(2), limit.toFixed(2), bar, (watts / Math.max(1, plan!.voltage * plan!.powerFactor)).toFixed(2), status === 'over' ? m.overloaded : m.ok, circuit.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
     });
     const mask = screen.imageSource?.startsWith('data:image/png;base64,') ? `<img src="${escapeXml(screen.imageSource)}" alt="${caption}"/>` : buildScreenSvg({ ...screen, processor: undefined });
     return `<section class="page"><h2>${caption} · ${m.mask}</h2><div class="mask">${mask}</div>${table(m.detailHeaders, [
@@ -339,5 +355,5 @@ export function buildReportHtml(projectName: string, screens: ExportScreen[], la
     const count = cabinetCount(screen);
     return `<tr><td>${escapeXml(screen.name)}</td><td>${escapeXml(`${screen.preset.brand} ${screen.preset.model}`)}</td><td>${screen.cols} × ${screen.rows}</td><td>${count}</td><td>${screen.cols * screen.preset.widthMm} × ${screen.rows * screen.preset.heightMm}</td><td>${(count * screen.preset.weightKg).toFixed(2)}</td><td>${(count * screen.preset.maxPowerW).toFixed(0)}</td></tr>`;
   }).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4 landscape;margin:14mm}body{font-family:Arial,sans-serif;color:#17212b}h1{font-size:22px}p{color:#52606d}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #aab4bd;padding:6px;text-align:left}th{background:#e7f7fb}.page{break-before:page}h2{font-size:18px}.mask{height:135mm;display:flex;align-items:center;justify-content:center;margin:8px 0}.mask svg{width:100%;height:100%}.mask img{width:auto;height:auto;max-width:100%;max-height:100%;outline:1px solid #000;outline-offset:-1px}td{overflow-wrap:anywhere}thead{display:table-header-group}tr{break-inside:avoid}</style></head><body><h1>${escapeXml(projectName)}</h1><p>${m.reportSummary(screens.length, totalCabinets, new Date().toLocaleString(m.dateLocale))}</p><table><thead><tr>${m.summaryHeaders.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>${details}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4 landscape;margin:14mm}body{font-family:Arial,sans-serif;color:#17212b}h1{font-size:22px}p{color:#52606d}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #aab4bd;padding:6px;text-align:left}th{background:#e7f7fb}.page{break-before:page}h2{font-size:18px}.mask{height:135mm;display:flex;align-items:center;justify-content:center;margin:8px 0}.mask svg{width:100%;height:100%}.mask img{width:auto;height:auto;max-width:100%;max-height:100%;outline:1px solid #000;outline-offset:-1px}td{overflow-wrap:anywhere}thead{display:table-header-group}.swatch{display:inline-block;width:12px;height:12px;border-radius:3px;opacity:.5;border:1px solid #6b7785}.load{display:flex;align-items:center;gap:6px;min-width:90px}.load-bar{flex:1;height:8px;border-radius:4px;background:#e2e8ee;overflow:hidden}.load-bar i{display:block;height:100%}.load b{width:34px;text-align:right}.load.is-over b{color:#dc2626}.load.is-tight b{color:#b87503}tr{break-inside:avoid}</style></head><body><h1>${escapeXml(projectName)}</h1><p>${m.reportSummary(screens.length, totalCabinets, new Date().toLocaleString(m.dateLocale))}</p><table><thead><tr>${m.summaryHeaders.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>${details}</body></html>`;
 }

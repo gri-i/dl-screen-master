@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import type { CabinetPreset, PowerCircuit, PowerPhase, PowerPlan } from '@shared/types';
 import type { ScreenConfig } from './PowerCalculator';
-import { POWER_PORT_MAX_W, usablePowerPerPortW } from '@shared/powerLimits';
+import { POWER_PORT_MAX_W, circuitLoad, routeColor, usablePowerPerPortW } from '@shared/powerLimits';
 import { generateCabinetOrder } from '@shared/autoRouting';
 import { useT } from '../i18n/context';
 
@@ -132,24 +132,35 @@ export function PowerPathPlanner({
       {value.phases === 3 && <div className="phase-loads">{PHASES.map((phase, index) => <span key={phase}>{phase}: {phaseAmps[index].toFixed(1)} А</span>)}</div>}
       <div className="power-circuit-list">
         {value.circuits.map((circuit, index) => {
-          const watts = circuit.assignedCabinets.length * preset.maxPowerW;
+          const { watts, percent: load, status } = circuitLoad(circuit.assignedCabinets.length, preset.maxPowerW, usablePowerW);
           const amps = circuit.assignedCabinets.length * cabinetAmps;
-          const load = Math.round(watts / Math.max(.1, usablePowerW) * 100);
-          const overloaded = load > 100;
           const remainingCabinets = maxCabinetsPerCircuit === null ? null : Math.max(0, maxCabinetsPerCircuit - circuit.assignedCabinets.length);
           return (
-            <button key={circuit.id} type="button" className={`${activeCircuitId === circuit.id ? 'is-active' : ''}${overloaded ? ' is-overloaded' : ''}`} onClick={() => onActiveCircuitChange(circuit.id)} style={{ '--circuit-color': `hsl(${index * 71} 75% 48%)` } as React.CSSProperties}>
-              <b>{circuit.name} · {circuit.phase}</b>
+            <button
+              key={circuit.id}
+              type="button"
+              className={`power-circuit is-${status}${activeCircuitId === circuit.id ? ' is-active' : ''}${circuit.assignedCabinets.length === 0 ? ' is-empty' : ''}`}
+              onClick={() => onActiveCircuitChange(circuit.id)}
+              style={{ '--circuit-color': routeColor(index) } as React.CSSProperties}
+            >
+              <span className="power-circuit-heading">
+                <i className="power-circuit-swatch" />
+                <b>{circuit.name} · {circuit.phase}</b>
+                {remainingCabinets !== null && <em>{status === 'over' ? `${t('pp.overload')} ` : ''}{load}%</em>}
+              </span>
               {remainingCabinets === null ? (
-                <span>{t('pp.noCabinetPower')}</span>
+                <span className="power-circuit-stats">{t('pp.noCabinetPower')}</span>
               ) : (
-                <span className="circuit-capacity">
-                  <em className={overloaded ? 'is-overloaded' : ''}>{t(overloaded ? 'pp.overloadPercent' : 'pp.loadPercent', { load })}</em><br />
-                  {t('pp.circuitStats', { count: circuit.assignedCabinets.length, max: maxCabinetsPerCircuit ?? 0, remaining: remainingCabinets })}<br />
-                  {t('pp.circuitKw', { used: (watts / 1000).toFixed(2), total: (usablePowerW / 1000).toFixed(2) })}<br />
-                  {t('pp.circuitAmps', { amps: amps.toFixed(2), limit: POWER_PORT_MAX_W / 1000 })}
-                  <i className="power-circuit-meter" aria-label={t('pp.loadPercent', { load })}><span className={overloaded ? 'is-overloaded' : ''} style={{ width: `${Math.min(load, 100)}%` }} /></i>
-                </span>
+                <>
+                  <span className="power-circuit-meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={load} aria-label={t('pp.loadPercent', { load })}>
+                    <i style={{ width: `${Math.min(load, 100)}%` }} />
+                  </span>
+                  <span className="power-circuit-stats">
+                    {t('pp.circuitStats', { count: circuit.assignedCabinets.length, max: maxCabinetsPerCircuit ?? 0, remaining: remainingCabinets })}
+                    {' · '}{t('pp.circuitKw', { used: (watts / 1000).toFixed(2), total: (usablePowerW / 1000).toFixed(2) })}
+                    {' · '}{t('pp.circuitAmps', { amps: amps.toFixed(2), limit: POWER_PORT_MAX_W / 1000 })}
+                  </span>
+                </>
               )}
             </button>
           );

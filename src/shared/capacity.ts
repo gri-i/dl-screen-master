@@ -57,3 +57,30 @@ export function portMaxFrameRate(port: ProcessorPort, pixels: number, bitDepth: 
   if (!link || pixels <= 0) return null;
   return (link.speedGbps * 1e9 * link.efficiency) / wireBitsPerPixel(bitDepth, link.packing) / pixels;
 }
+
+export type PortLoadStatus = 'ok' | 'tight' | 'over';
+
+export interface PortLoad {
+  pixels: number;
+  limitPx: number;
+  /** Доля занятости: максимум из пикселей и лимита кабинетов. */
+  ratio: number;
+  percent: number;
+  status: PortLoadStatus;
+  maxFrameRateHz: number | null;
+}
+
+/** Загрузка порта: >100% — перегрузка, >90% — на пределе (мало запаса на смену fps/битности). */
+export function portLoad(port: ProcessorPort, pixelsPerCabinet: number, signal: SignalFormat = DEFAULT_SIGNAL): PortLoad {
+  const pixels = port.assignedCabinets.length * pixelsPerCabinet;
+  const limitPx = portMaxPixels(port, signal);
+  const pixelRatio = limitPx > 0 ? pixels / limitPx : 0;
+  const cabinetRatio = port.maxCabinets ? port.assignedCabinets.length / port.maxCabinets : 0;
+  const ratio = Math.max(pixelRatio, cabinetRatio);
+  return {
+    pixels, limitPx, ratio,
+    percent: Math.round(ratio * 100),
+    status: ratio > 1 ? 'over' : ratio > 0.9 ? 'tight' : 'ok',
+    maxFrameRateHz: portMaxFrameRate(port, pixels, signal.bitDepth)
+  };
+}

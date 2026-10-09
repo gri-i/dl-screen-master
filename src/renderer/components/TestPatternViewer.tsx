@@ -9,7 +9,7 @@ import type {
   PowerPlan,
   SignalFormat
 } from '@shared/types';
-import { portMaxFrameRate, portMaxPixels } from '@shared/capacity';
+import { portLoad, portMaxPixels } from '@shared/capacity';
 import { checkControllerCanvas, checkReceiverCard } from '@shared/hardwareLimits';
 import { validateWiring, type WiringIssue } from '@shared/layoutValidation';
 import {
@@ -30,7 +30,7 @@ import {
   type RoutingPattern,
   type StartCorner
 } from '@shared/autoRouting';
-import { usablePowerPerPortW } from '@shared/powerLimits';
+import { routeColor, usablePowerPerPortW } from '@shared/powerLimits';
 import type { Lang } from '@shared/lang';
 import { useLanguage } from '../i18n/context';
 
@@ -1791,6 +1791,14 @@ export function TestPatternViewer({
       });
       if (centers.length === 0) return;
       const color = `hsl(${portIndex * 83} 78% 38%)`;
+      // Заливка кабинетов цветом порта, прозрачность 50% (тот же hue, что и на холсте).
+      context.save();
+      context.fillStyle = `hsl(${portIndex * 83} 78% 55% / .5)`;
+      port.assignedCabinets.forEach((key) => {
+        const [col, row] = key.split('-').map(Number);
+        context.fillRect(col * cabinetWidth, row * cabinetHeight, cabinetWidth, cabinetHeight);
+      });
+      context.restore();
       if (centers.length > 1) {
         context.save();
         context.lineCap = 'round';
@@ -2645,32 +2653,41 @@ export function TestPatternViewer({
                 <div className="data-port-list">
                   {dataPortsBySendingCard(selectedDataScreen.processor.ports).map((group) => (
                     <section className="sending-card-group" key={group.key}>
-                      <h4>{group.title}</h4>
+                      {(() => {
+                        const pixelsPerCabinet = (selectedDataPreset?.resolutionX ?? 0) * (selectedDataPreset?.resolutionY ?? 0);
+                        const loads = group.ports.map((port) => portLoad(port, pixelsPerCabinet, signal));
+                        const usedPorts = loads.filter((load) => load.pixels > 0).length;
+                        const overPorts = loads.filter((load) => load.status === 'over').length;
+                        return (
+                          <h4>
+                            {group.title}
+                            <small>{t('tpv.port.portsUsed', { used: usedPorts, total: group.ports.length })}{overPorts > 0 ? ` · ${t('tpv.port.overloadedCount', { count: overPorts })}` : ''}</small>
+                          </h4>
+                        );
+                      })()}
                       {group.ports.map((port) => {
                     const portIndex = selectedDataScreen.processor!.ports.indexOf(port);
-                    const pixels = port.assignedCabinets.length * (selectedDataPreset?.resolutionX ?? 0) * (selectedDataPreset?.resolutionY ?? 0);
-                    const portLimit = portMaxPixels(port, signal);
-                    const pixelLoad = portLimit > 0 ? pixels / portLimit : 0;
-                    const maxFps = portMaxFrameRate(port, pixels, signal.bitDepth);
-                    const cabinetLoad = port.maxCabinets ? port.assignedCabinets.length / port.maxCabinets : 0;
-                    const loadPercent = Math.round(Math.max(pixelLoad, cabinetLoad) * 100);
-                    const invalid = loadPercent > 100;
+                    const load = portLoad(port, (selectedDataPreset?.resolutionX ?? 0) * (selectedDataPreset?.resolutionY ?? 0), signal);
+                    const portColor = `hsl(${portIndex * 83} 78% 55%)`;
+                    const fps = load.maxFrameRateHz !== null && load.maxFrameRateHz < 1000 ? ` · ≤${Math.floor(load.maxFrameRateHz)} fps` : '';
                     return (
                       <button
                         type="button"
                         key={port.portId}
-                        className={`${activeDataPortId === port.portId ? 'is-active' : ''}${invalid ? ' is-invalid' : ''}`}
+                        className={`data-port is-${load.status}${activeDataPortId === port.portId ? ' is-active' : ''}${port.assignedCabinets.length === 0 ? ' is-empty' : ''}`}
                         onClick={() => setActiveDataPortId(port.portId)}
-                        style={{ '--port-color': `hsl(${portIndex * 83} 85% 60%)` } as React.CSSProperties}
+                        title={`${load.pixels.toLocaleString()} / ${load.limitPx.toLocaleString()} px${fps}`}
+                        style={{ '--port-color': portColor } as React.CSSProperties}
                       >
                         <span className="data-port-heading">
+                          <i className="data-port-swatch" />
                           <b>Port {port.sourcePortName ?? port.portId}</b>
-                          <em className={invalid ? 'is-overloaded' : ''}>{invalid ? `Перегрузка ${loadPercent}%` : `${loadPercent}%`}</em>
+                          <em>{load.status === 'over' ? `${t('tpv.port.overload')} ` : ''}{load.percent}%</em>
                         </span>
-                        <span className="data-port-stats">{port.assignedCabinets.length} каб. · {pixels.toLocaleString()} / {portLimit.toLocaleString()} px{maxFps !== null && maxFps < 1000 ? ` · ≤${Math.floor(maxFps)} fps` : ''}</span>
-                        <span className="data-port-meter" aria-label={`Загрузка ${loadPercent}%`}>
-                          <i className={invalid ? 'is-overloaded' : ''} style={{ width: `${Math.min(loadPercent, 100)}%` }} />
+                        <span className="data-port-meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={load.percent} aria-label={`${t('tpv.port.load')} ${load.percent}%`}>
+                          <i style={{ width: `${Math.min(load.percent, 100)}%` }} />
                         </span>
+                        <span className="data-port-stats">{port.assignedCabinets.length} {t('tpv.port.cabinetsShort')} · {load.pixels.toLocaleString()} / {load.limitPx.toLocaleString()} px{fps}</span>
                       </button>
                     );
                       })}
@@ -2842,9 +2859,9 @@ export function TestPatternViewer({
                           '--cell-unit': unit
                         } as React.CSSProperties}
                       >
-                        {isEditingDataPath && screen.processor.ports.flatMap((port, portIndex) => port.assignedCabinets.map((key) => {
+                        {screen.processor.ports.flatMap((port, portIndex) => port.assignedCabinets.map((key) => {
                           const [col, row] = key.split('-').map(Number);
-                          return <rect key={`${port.portId}-${key}`} x={col * cellW} y={row * cellH} width={cellW} height={cellH} fill={`hsl(${portIndex * 83} 75% 55% / .24)`} />;
+                          return <rect key={`${port.portId}-${key}`} x={col * cellW} y={row * cellH} width={cellW} height={cellH} fill={`hsl(${portIndex * 83} 78% 55% / .5)`} />;
                         }))}
                         {screen.processor.ports.map((port, portIndex) => {
                           const centers = port.assignedCabinets.map((key) => {
@@ -2912,18 +2929,18 @@ export function TestPatternViewer({
                         viewBox={`0 0 ${cols * cellW} ${rows * cellH}`}
                         style={{ left: '50%', top: '50%', width: overlayWidth, height: overlayHeight, transform: `translate(-50%, -50%) rotate(${screen.rotation}deg)`, '--cell-unit': unit } as React.CSSProperties}
                       >
-                        {isEditingPowerPath && screen.powerPlan.circuits.flatMap((circuit) => circuit.assignedCabinets.map((key) => {
+                        {screen.powerPlan.circuits.flatMap((circuit, circuitIndex) => circuit.assignedCabinets.map((key) => {
                           const [col, row] = key.split('-').map(Number);
-                          return <rect key={`${circuit.id}-${key}`} x={col * cellW} y={row * cellH} width={cellW} height={cellH} fill="rgb(220 38 38 / .22)" />;
+                          return <rect key={`${circuit.id}-${key}`} x={col * cellW} y={row * cellH} width={cellW} height={cellH} fill={routeColor(circuitIndex)} fillOpacity={.5} />;
                         }))}
-                        {screen.powerPlan.circuits.map((circuit) => {
+                        {screen.powerPlan.circuits.map((circuit, circuitIndex) => {
                           const centers = circuit.assignedCabinets.map((key) => {
                             const [col, row] = key.split('-').map(Number);
                             return { x: (col + .5) * cellW, y: (row + .5) * cellH };
                           });
                           const points = centers.map((point) => `${point.x},${point.y}`).join(' ');
                           const overloaded = circuit.assignedCabinets.length * screenPreset.maxPowerW > usablePowerW;
-                          const color = overloaded ? '#ef4444' : '#dc2626';
+                          const color = overloaded ? '#ef4444' : routeColor(circuitIndex).replace('55%', '38%');
                           const first = circuit.assignedCabinets[0]?.split('-').map(Number);
                           const last = circuit.assignedCabinets.at(-1)?.split('-').map(Number);
                           return (

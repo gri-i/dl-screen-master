@@ -315,17 +315,22 @@ button:hover { border-color: var(--accent); color: #fff; }
 .data-port-list { display: grid; gap: 5px; }
 .sending-card-group { display: grid; gap: 5px; padding: 6px; border: 1px solid #33424d; border-radius: 6px; background: var(--panel); }
 .sending-card-group h4 { margin: 0; color: var(--dl-ok-text); font-size: 11px; font-weight: 800; }
-.data-port-list button { display: grid; gap: 4px; border-left: 4px solid var(--port-color); text-align: left; }
-.data-port-list button.is-active { color: var(--on-accent); border-color: var(--port-color); background: var(--port-color); }
-.data-port-list button.is-invalid { outline: 2px solid var(--stop); outline-offset: -2px; }
-.data-port-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.data-port-heading em { color: #86efac; font-size: 10px; font-style: normal; font-weight: 800; }
-.data-port-heading em.is-overloaded { color: var(--dl-cancel-text); }
-.data-port-stats { color: var(--muted); font-size: 10px; }
-.data-port-list button.is-active .data-port-stats { color: rgba(6,19,23,.72); }
-.data-port-meter { display: block; height: 4px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.13); }
-.data-port-meter i { display: block; height: 100%; border-radius: inherit; background: var(--go); transition: width .18s ease; }
-.data-port-meter i.is-overloaded { background: var(--stop); box-shadow: 0 0 7px rgba(239,68,68,.85); }
+.sending-card-group h4 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.sending-card-group h4 small { color: var(--muted); font-size: 10px; font-weight: 600; }
+.data-port-list button.data-port { display: grid; gap: 5px; padding: 7px 9px; border-left: 0; text-align: left; --status-color: var(--port-color); }
+.data-port-list button.data-port.is-tight { --status-color: var(--warn); }
+.data-port-list button.data-port.is-over { --status-color: var(--stop); outline: 2px solid var(--stop); outline-offset: -2px; }
+.data-port-list button.data-port.is-empty { opacity: .6; }
+.data-port-list button.data-port.is-active { color: inherit; background: color-mix(in srgb, var(--port-color) 22%, var(--panel)); border-color: var(--port-color); box-shadow: inset 0 0 0 1px var(--port-color); }
+.data-port-heading { display: flex; align-items: center; gap: 8px; }
+.data-port-heading b { flex: 1; font-size: 12px; }
+.data-port-swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; background: var(--port-color); opacity: .5; box-shadow: 0 0 0 1px rgba(255,255,255,.35); }
+.data-port-heading em { color: var(--status-color); font-size: 14px; font-style: normal; font-weight: 800; font-variant-numeric: tabular-nums; }
+.data-port-stats { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.data-port-meter { position: relative; display: block; height: 8px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.13); }
+.data-port-meter i { display: block; height: 100%; border-radius: inherit; background: var(--status-color); transition: width .18s ease; }
+/* Засечка 90% — порог «на пределе»: дальше почти нет запаса на смену fps/битности. */
+.data-port-meter::after { content: ''; position: absolute; top: 0; bottom: 0; left: 90%; width: 1px; background: rgba(255,255,255,.55); }
 .data-path-summary { margin: 0; color: #86efac; font-size: 12px; }
 .data-path-summary.is-warning { color: var(--warn); }
 .data-cabinet-grid { display: grid; gap: 3px; padding: 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
@@ -393,19 +398,19 @@ button:hover { border-color: var(--accent); color: #fff; }
 .phase-loads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .phase-loads span { padding: 5px; color: #bfdbfe; border: 1px solid var(--line); border-radius: 4px; background: #172033; font-size: 10px; text-align: center; }
 .power-circuit-list { display: grid; gap: 4px; }
-.power-circuit-list button { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-left: 4px solid var(--circuit-color); text-align: left; }
-.power-circuit-list button span { color: var(--muted); font-size: 9px; }
-.power-circuit-list button .circuit-capacity { line-height: 1.35; text-align: right; }
-.power-circuit-list button .circuit-capacity em { color: #86efac; font-size: 10px; font-style: normal; font-weight: 800; }
-.power-circuit-list button .circuit-capacity em.is-overloaded { color: var(--dl-cancel-text); }
-.power-circuit-meter { display: block; height: 4px; margin-top: 4px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.13); }
-.power-circuit-meter span { display: block; height: 100%; border-radius: inherit; background: var(--go); transition: width .18s ease; }
-.power-circuit-meter span.is-overloaded { background: var(--stop); box-shadow: 0 0 7px rgba(239,68,68,.85); }
-.power-circuit-list button.is-active { color: var(--on-accent); border-color: var(--circuit-color); background: var(--circuit-color); }
-.power-circuit-list button.is-active span { color: rgba(7,20,23,.72); }
-.power-circuit-list button.is-active .circuit-capacity em { color: rgba(7,20,23,.78); }
-.power-circuit-list button.is-active .circuit-capacity em.is-overloaded { color: #7f1d1d; }
-.power-circuit-list button.is-overloaded { outline: 2px solid var(--stop); outline-offset: -2px; }
+.power-circuit-list button.power-circuit { display: grid; gap: 5px; padding: 7px 9px; border-left: 0; text-align: left; --status-color: var(--circuit-color); }
+.power-circuit-list button.power-circuit.is-tight { --status-color: var(--warn); }
+.power-circuit-list button.power-circuit.is-over { --status-color: var(--stop); outline: 2px solid var(--stop); outline-offset: -2px; }
+.power-circuit-list button.power-circuit.is-empty { opacity: .6; }
+.power-circuit-list button.power-circuit.is-active { color: inherit; background: color-mix(in srgb, var(--circuit-color) 22%, var(--panel)); border-color: var(--circuit-color); box-shadow: inset 0 0 0 1px var(--circuit-color); }
+.power-circuit-heading { display: flex; align-items: center; gap: 8px; }
+.power-circuit-heading b { flex: 1; font-size: 12px; }
+.power-circuit-swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; background: var(--circuit-color); opacity: .5; box-shadow: 0 0 0 1px rgba(255,255,255,.35); }
+.power-circuit-heading em { color: var(--status-color); font-size: 14px; font-style: normal; font-weight: 800; font-variant-numeric: tabular-nums; }
+.power-circuit-stats { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.power-circuit-meter { position: relative; display: block; height: 8px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.13); }
+.power-circuit-meter i { display: block; height: 100%; border-radius: inherit; background: var(--status-color); transition: width .18s ease; }
+.power-circuit-meter::after { content: ''; position: absolute; top: 0; bottom: 0; left: 90%; width: 1px; background: rgba(255,255,255,.55); }
 .power-path-overlay g.is-overloaded polyline { stroke: var(--stop); filter: drop-shadow(0 0 calc(var(--cell-unit, 1) * .06px) rgba(239,68,68,.95)); }
 .power-overload-marker text { fill: #7f1d1d; font-size: calc(var(--cell-unit, 1) * .22px); font-weight: 900; }
 .power-cabinet-grid { display: grid; gap: 3px; padding: 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
