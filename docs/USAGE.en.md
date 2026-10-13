@@ -130,6 +130,29 @@ Once a controller exists, you get:
 The **"Clear port"** and **"Clear all paths"** buttons reset
 assignments without removing the controller itself.
 
+### Hardware limits and unknown values
+
+Official limits come from `src/shared/hardwareLimits.ts` and are
+color-depth-specific. Known values:
+
+- **MCTRL4K** — 8,800,000 pixels aggregate.
+- **MCTRL660 Pro** — 2,304,000 pixels at 8-bit and 2,073,600 at
+  10/12-bit.
+- **MCTRL660** — 2,304,000 at 8-bit and 1,296,000 at 12-bit; the 10-bit
+  canvas is explicitly unknown.
+- **H9/H15** — per H_16 RJ45 card port: 650,000 at 8-bit and 320,000 at
+  10-bit. Maximum cards: H9 — 5, H15 Standard — 10, H15 Enhanced — 16.
+
+H9/H15 aggregate input capacity must not be reduced to one number without
+  the chassis and sending-card configuration. H15 cards 11–16 remain
+  unknown until Standard or Enhanced is selected; more than 16 cards is an
+  overload. When no official value is available, the interface shows
+  `unknown` instead of inventing an estimate.
+
+Source-backed receiver-card variants are **A10s Pro**, **A8s PWM/common**,
+**A5s Plus PWM/common**, and **A4s**. **A8s Pro** and missing driver
+variants remain `unknown`.
+
 ## 5. Wiring: power circuits
 
 On the same panel, switch to the **"Power"** tab.
@@ -227,10 +250,20 @@ On the Pixel mask/Wiring toolbar:
 
 - **"New"** — clears the current layout and starts a new project.
 - **"Open"** / **"Save"** — work with `.dlscreen` (JSON) project files
-  through the system file dialog. The user cabinet library is stored in the
-  project's `customPresets` field; opening the project makes it the current
-  library and also writes it to the app profile. Built-in presets and
-  temporary imported data should not be confused with this field.
+  through the system file dialog. Files are parsed from `unknown` and
+  validated before use: RU/EN errors are localized, finite values, ranges,
+  nested presets, screens, coordinates and routes are checked, and v1
+  normalization is supported. The project snapshot stores only user presets
+  referenced by its screens. The global library is preserved and merged on
+  open; non-identical `id` or brand+model conflicts are reported instead of
+  being silently overwritten.
+- Project saves are atomic and clear
+  `userData/recovery/current.dlscreen-recovery.json` only after success. When
+  the project is dirty, **New**, **Open** and app close use a save
+  confirmation; cancel, save failure or recovery-cleanup failure stops the
+  destructive transition. If recovery is found, restoring it also requires
+  explicit confirmation. Recovery autosaves use a generation guard against
+  stale writes.
 - **"Clear all"** — removes every screen from the current workspace.
 
 For details on exactly what's stored in a project file and how the data

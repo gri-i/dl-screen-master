@@ -37,6 +37,9 @@ calculators.
   number of power circuits for a screen; a Bandwidth Calculator for
   HDMI 1.4b–2.2 and DisplayPort 1.1–2.1 (RGB/YCbCr, color depth,
   blanking, DSC).
+- **Hardware limits** — officially backed controller and port limits are
+  depth-specific; unknown variants are shown as `unknown` instead of being
+  filled with guesses.
 - **Export** — PNG mask (combined and per-screen for multiple selected
   screens), PNG with the signal-path overlay, a project PDF report with
   a summary table, masks and wiring diagrams, a cabinet CSV schedule, and
@@ -49,8 +52,10 @@ calculators.
   Resolume manually, and set output rotation manually for rotated screens.
   Live Arena import has not been verified, and the format can vary by version.
 - **`.dlscreen` projects** — save/open through Electron IPC; user cabinet
-  presets are stored in the project's `customPresets` field and restored to
-  the app profile when the project is opened.
+  snapshots contain only presets referenced by the project's screens; the
+  global library is preserved and merged on open, while incompatible `id` or
+  brand+model conflicts are reported. Saves are atomic, dirty transitions are
+  guarded, and recovery is available after a failure.
 - **Color themes** — 8 DreamLaser Design System themes, applied
   instantly and remembered between launches.
 - **Two interface languages** — Russian and English, switchable in
@@ -84,6 +89,17 @@ npm run dev      # start in development mode
 npm run build     # production build of renderer/main
 npm run package   # build an installer (electron-builder)
 ```
+
+Project checks for development and CI:
+
+```bash
+npm test              # vitest run
+npm run typecheck     # tsc --noEmit
+npm run build         # production build
+```
+
+These commands passed in the new-stage worker validation (2 files, 6 Vitest
+tests). A real Electron GUI smoke test and IPC UI paths were not executed.
 
 `npm run package` builds local installers into `release/` for Windows x64 and
 macOS x64/arm64. This does not mean that the current branch or `main` is a
