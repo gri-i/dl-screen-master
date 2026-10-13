@@ -39,10 +39,8 @@
   `npm run typecheck` и `npm run build`; release workflow выполняет test и
   typecheck перед build, сохраняя `workflow_dispatch`.
 
-### Проверено
+### Ограничения проверки
 
-- Worker-проверка нового этапа: `npm test` — 2 файла, 6 тестов пройдены;
-  `npm run typecheck` и `npm run build` пройдены.
 - Реальный Electron GUI smoke test и UI-пути IPC не выполнялись; эти
   ограничения не следует выдавать за подтверждённую проверку интерфейса.
 - Контракты подтверждены feature SHAs `baeab43`, `ba0ce8d`, `2353401` и

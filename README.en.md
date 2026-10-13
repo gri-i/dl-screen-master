@@ -99,8 +99,9 @@ npm run typecheck     # tsc --noEmit
 npm run build         # production build
 ```
 
-These commands passed in the new-stage worker validation (2 files, 6 Vitest
-tests). A real Electron GUI smoke test and IPC UI paths were not executed.
+These commands are the documented project checks. A real Electron GUI smoke
+test and IPC UI paths were not executed, so this documentation does not claim
+that they are GUI-verified.
 
 `npm run package` builds local installers into `release/` for Windows x64 and
 macOS x64/arm64. This does not mean that the current branch or `main` is a

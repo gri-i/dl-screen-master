@@ -100,9 +100,8 @@ npm run typecheck     # tsc --noEmit
 npm run build         # production-сборка
 ```
 
-На новом этапе эти команды прошли в worker-проверке (2 файла, 6 тестов для
-Vitest). Реальный GUI smoke test Electron и UI-пути IPC в этой проверке не
-выполнялись.
+Реальный GUI smoke test Electron и UI-пути IPC отдельно не выполнялись; эта
+документация не объявляет их проверенными.
 
 `npm run package` локально собирает установщики в `release/` для Windows x64 и
 macOS x64/arm64. Эта команда не означает, что текущая ветка или `main` уже
