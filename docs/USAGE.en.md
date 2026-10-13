@@ -257,10 +257,14 @@ On the Pixel mask/Wiring toolbar:
   through the system file dialog. Files are parsed from `unknown` and
   validated before use: RU/EN errors are localized, finite values, ranges,
   nested presets, screens, coordinates and routes are checked, and v1
-  normalization is supported. The project snapshot stores only user presets
+  normalization is supported. Legacy v1 projects may omit optional `signal`,
+  `processor`, `powerPlan`, `visualSettings` and `sessionPresets`; visual
+  defaults are normalized safely. The project snapshot stores only user presets
   referenced by its screens. The global library is preserved and merged on
   open; non-identical `id` or brand+model conflicts are reported instead of
-  being silently overwritten.
+  being silently overwritten. Rejection is limited to malformed data,
+  non-finite or out-of-range coordinates/routes, missing preset references,
+  invalid nested types and unsafe preset conflicts.
 - Project saves are atomic and clear
   `userData/recovery/current.dlscreen-recovery.json` only after success. When
   the project is dirty, **New**, **Open** and app close use a save
