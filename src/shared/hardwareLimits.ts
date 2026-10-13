@@ -335,32 +335,38 @@ export function checkSendingCardCount(processor: Processor | undefined): Sending
     groups.set(key, group);
   }
 
-  return Array.from(groups.entries()).map(([, group]) => {
+  const cardGroups = Array.from(groups.entries()).filter(([, group]) => {
     const profile = controllerLimit(group.model);
+    return profile?.maxSendingCards !== undefined || profile?.maxSendingCardsEnhanced !== undefined;
+  });
+
+  return cardGroups.map(([, group]) => {
+    const profile = controllerLimit(group.model)!;
     const cards = group.ids.size;
     const standardLimit = profile?.maxSendingCards;
     const enhancedLimit = profile?.maxSendingCardsEnhanced;
-    if (standardLimit === undefined && enhancedLimit === undefined) return null;
     let status: HardwareCheckStatus;
     let limit: number | undefined;
     let reason: string | undefined;
-    if (!profile || standardLimit === undefined || group.ids.has('')) {
+    if (group.ids.has('')) {
       status = 'unknown';
-      reason = !profile
-        ? 'Controller model is not identified by the saved project.'
-        : group.ids.has('')
-          ? 'Sending-card identity is missing from the saved project.'
-          : 'Sending-card count is not stated for this controller profile.';
-    } else if (cards <= standardLimit) {
+      reason = 'Sending-card identity is missing from the saved project.';
+    } else if (standardLimit !== undefined && cards <= standardLimit) {
       status = 'ok';
       limit = standardLimit;
-    } else if (enhancedLimit !== undefined && cards > standardLimit && cards <= enhancedLimit) {
+    } else if (standardLimit !== undefined && enhancedLimit !== undefined && cards <= enhancedLimit) {
       status = 'unknown';
       limit = enhancedLimit;
       reason = 'H-series Standard versus Enhanced chassis variant is not present in the saved project.';
     } else {
-      limit = enhancedLimit ?? standardLimit;
-      status = cards <= limit ? 'ok' : 'overload';
+      const finalLimit = enhancedLimit ?? standardLimit;
+      if (finalLimit === undefined) {
+        status = 'unknown';
+        reason = 'Sending-card count is not stated for this controller profile.';
+      } else {
+        limit = finalLimit;
+        status = cards <= finalLimit ? 'ok' : 'overload';
+      }
     }
     return {
       controller: group.model,
@@ -372,7 +378,7 @@ export function checkSendingCardCount(processor: Processor | undefined): Sending
       applicability: profile?.applicability,
       reason
     };
-  }).filter((check): check is SendingCardCheck => check !== null);
+  });
 }
 
 export interface ReceiverCheck {
