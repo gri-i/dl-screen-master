@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
 import { buildProjectSnapshot } from '../../src/shared/projectPersistence';
 import { parseProject, validateProject } from '../../src/shared/projectValidation';
 import type { CabinetPreset, ScreenInstance } from '../../src/shared/types';
@@ -31,8 +32,8 @@ describe('project validation', () => {
       }], customPresets: []
     }, { lang: 'en' });
 
-    expect(result.project).toBeUndefined();
-    expect(result.errors.join(' ')).toMatch(/missing preset|invalid value|invalid coordinate|finite|more than once/i);
+    assert.equal(result.project, undefined);
+    assert.match(result.errors.join(' '), /missing preset|invalid value|invalid coordinate|finite|more than once/i);
   });
 
   it('accepts legacy v1 files with optional fields absent and normalizes them', () => {
@@ -42,9 +43,9 @@ describe('project validation', () => {
       customPresets: [preset]
     };
     const normalized = parseProject(legacy);
-    expect(normalized.signal).toBeUndefined();
-    expect(normalized.screens[0].visualSettings.logoOpacityPercent).toBe(50);
-    expect(normalized.screens[0].visualSettings.showCabinetNumbers).toBe(false);
+    assert.equal(normalized.signal, undefined);
+    assert.equal(normalized.screens[0].visualSettings.logoOpacityPercent, 50);
+    assert.equal(normalized.screens[0].visualSettings.showCabinetNumbers, false);
   });
 
   it('round-trips project-local session presets and routes', () => {
@@ -54,7 +55,7 @@ describe('project validation', () => {
       customPresets: [], sessionPresets: [localPreset], signal: { bitDepth: 8, frameRateHz: 60 }
     });
     const parsed = parseProject(JSON.parse(JSON.stringify(project)));
-    expect(parsed.screens[0].presetId).toBe(localPreset.id);
-    expect(parsed.sessionPresets).toEqual([localPreset]);
+    assert.equal(parsed.screens[0].presetId, localPreset.id);
+    assert.deepEqual(parsed.sessionPresets, [localPreset]);
   });
 });

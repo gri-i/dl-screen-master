@@ -96,7 +96,7 @@ npm run package   # build an installer (electron-builder)
 Project checks for development and CI:
 
 ```bash
-npm test              # vitest run
+npm test              # TypeScript tests via Node.js node:test
 npm run typecheck     # tsc --noEmit
 npm run build         # production build
 ```

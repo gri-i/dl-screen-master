@@ -46,7 +46,7 @@
 - Публикация GitHub Release из артефактов сборки по тегу вынесена в workflow;
   наличие этой ветки или `main` само по себе не является выпущенным
   установщиком.
-- Для разработки и CI добавлены проверки `npm test` (`vitest run`),
+- Для разработки и CI добавлены проверки `npm test` (TypeScript tests через Node.js `node:test`),
   `npm run typecheck` и `npm run build`; release workflow выполняет test и
   typecheck перед build, сохраняя `workflow_dispatch`.
 

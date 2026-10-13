@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
 import { calculateScreenPower } from '../../src/shared/calculations';
 import type { CabinetPreset, Screen } from '../../src/shared/types';
 
@@ -30,13 +31,13 @@ describe('screen power calculations', () => {
       }))
     };
 
-    expect(calculateScreenPower(screen, preset, {
+    assert.deepEqual(calculateScreenPower(screen, preset, {
       voltage: 230,
       phase: 'single',
       circuitBreakerAmps: 16,
       safetyMarginPercent: 20,
       powerFactor: 0.95
-    })).toEqual({
+    }), {
       totalCabinets: 6,
       totalWeightKg: 72,
       totalWidthMm: 1500,

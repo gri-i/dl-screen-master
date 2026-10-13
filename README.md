@@ -96,7 +96,7 @@ npm run package   # сборка установщиков (electron-builder), р
 Проверки проекта для разработки и CI:
 
 ```bash
-npm test              # vitest run
+npm test              # TypeScript tests via Node.js node:test
 npm run typecheck     # tsc --noEmit
 npm run build         # production-сборка
 ```

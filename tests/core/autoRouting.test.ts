@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
 import { generateCabinetOrder, generatePowerPlan, routeProcessor } from '../../src/shared/autoRouting';
 import type { Processor } from '../../src/shared/types';
 
 describe('automatic routing', () => {
   it('generates snake order from a corner while skipping empty cabinets', () => {
-    expect(generateCabinetOrder(
+    assert.deepEqual(generateCabinetOrder(
       { cols: 3, rows: 2, emptyCabinetKeys: ['1-0'] },
       'snake-rows',
       'top-left'
-    )).toEqual(['0-0', '2-0', '2-1', '1-1', '0-1']);
+    ), ['0-0', '2-0', '2-1', '1-1', '0-1']);
   });
 
   it('fills processor ports by signal capacity and keeps order', () => {
@@ -23,7 +24,7 @@ describe('automatic routing', () => {
     };
 
     const routed = routeProcessor(processor, ['0-0', '1-0', '2-0', '0-1', '1-1'], 64);
-    expect(routed.ports.map((port) => port.assignedCabinets)).toEqual([
+    assert.deepEqual(routed.ports.map((port) => port.assignedCabinets), [
       ['0-0', '1-0', '2-0', '0-1'],
       ['1-1']
     ]);
@@ -38,10 +39,10 @@ describe('automatic routing', () => {
       phases: 3
     }, ['0-0', '1-0', '2-0', '0-1', '1-1'], 150, 2, (number) => `Synthetic ${number}`);
 
-    expect(plan.circuits).toHaveLength(3);
-    expect(plan.circuits.map((circuit) => circuit.name)).toEqual(['Synthetic 1', 'Synthetic 2', 'Synthetic 3']);
-    expect(plan.circuits.map((circuit) => circuit.phase)).toEqual(['L1', 'L2', 'L3']);
-    expect(plan.circuits.map((circuit) => circuit.assignedCabinets)).toEqual([
+    assert.equal(plan.circuits.length, 3);
+    assert.deepEqual(plan.circuits.map((circuit) => circuit.name), ['Synthetic 1', 'Synthetic 2', 'Synthetic 3']);
+    assert.deepEqual(plan.circuits.map((circuit) => circuit.phase), ['L1', 'L2', 'L3']);
+    assert.deepEqual(plan.circuits.map((circuit) => circuit.assignedCabinets), [
       ['0-0', '1-0'],
       ['2-0', '0-1'],
       ['1-1']

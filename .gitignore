@@ -32,4 +32,4 @@ Desktop.ini
 # TypeScript/Vite caches
 *.tsbuildinfo
 .vite/
-
+.test-dist/

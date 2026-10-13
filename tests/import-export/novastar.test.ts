@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
 import { importNovaStarProject } from '../../src/renderer/novastarImport';
 import { syntheticMultiCardDsc } from './fixtures';
 
 describe('NovaStar import', () => {
-  it.each([1, 2, 3])('parses a synthetic %s-card DSCI fixture with previous-header offsets', async (cardCount) => {
+  for (const cardCount of [1, 2, 3]) it(`parses a synthetic ${cardCount}-card DSCI fixture with previous-header offsets`, async () => {
     const bytes = syntheticMultiCardDsc(cardCount);
     const file = {
       name: 'synthetic-multicard.scr',
@@ -12,24 +13,24 @@ describe('NovaStar import', () => {
 
     const imported = await importNovaStarProject(file, [], 'en');
 
-    expect(imported.screens).toHaveLength(cardCount);
-    expect(imported.screens.map((screen) => screen.name)).toEqual(
+    assert.equal(imported.screens.length, cardCount);
+    assert.deepEqual(imported.screens.map((screen) => screen.name),
       [7, 1, 2].slice(0, cardCount).map((sender) => `Screen${sender}`)
     );
-    expect(imported.screens.map((screen) => screen.sourceCabinetCount)).toEqual(Array(cardCount).fill(3));
-    expect(imported.screens.map((screen) => screen.processor?.model)).toEqual(
+    assert.deepEqual(imported.screens.map((screen) => screen.sourceCabinetCount), Array(cardCount).fill(3));
+    assert.deepEqual(imported.screens.map((screen) => screen.processor?.model),
       [7, 1, 2].slice(0, cardCount).map((sender) => `Sending card ${sender}`)
     );
-    expect(imported.screens[0].processor?.ports.map((port) => port.assignedCabinets)).toEqual([
+    assert.deepEqual(imported.screens[0].processor?.ports.map((port) => port.assignedCabinets), [
       ['1-0', '0-0'],
       ['0-1']
     ]);
-    expect(imported.screens[0].processor?.ports.map((port) => [port.controllerId, port.sourcePortName])).toEqual([
+    assert.deepEqual(imported.screens[0].processor?.ports.map((port) => [port.controllerId, port.sourcePortName]), [
       ['7', '1'],
       ['7', '2']
     ]);
-    if (cardCount > 1) expect(imported.screens[1].processor?.ports[0].assignedCabinets).toEqual(['1-0', '0-0']);
-    expect(imported.screens[0].config.emptyCabinetKeys).toEqual(['1-1']);
+    if (cardCount > 1) assert.deepEqual(imported.screens[1].processor?.ports[0].assignedCabinets, ['1-0', '0-0']);
+    assert.deepEqual(imported.screens[0].config.emptyCabinetKeys, ['1-1']);
   });
 
   it('skips damaged records while keeping valid port order and physical port fields', async () => {
@@ -41,12 +42,12 @@ describe('NovaStar import', () => {
 
     const imported = await importNovaStarProject(file, [], 'en');
 
-    expect(imported.screens.map((screen) => screen.sourceCabinetCount)).toEqual([3, 2]);
-    expect(imported.screens[1].processor?.ports.map((port) => ({
+    assert.deepEqual(imported.screens.map((screen) => screen.sourceCabinetCount), [3, 2]);
+    assert.deepEqual(imported.screens[1].processor?.ports.map((port) => ({
       controllerId: port.controllerId,
       sourcePortName: port.sourcePortName,
       assignedCabinets: port.assignedCabinets
-    }))).toEqual([
+    })), [
       { controllerId: '1', sourcePortName: '1', assignedCabinets: ['0-0'] },
       { controllerId: '1', sourcePortName: '2', assignedCabinets: ['0-1'] }
     ]);
@@ -61,8 +62,8 @@ describe('NovaStar import', () => {
 
     const imported = await importNovaStarProject(file, [], 'en');
 
-    expect(imported.screens[2].sourceCabinetCount).toBe(0);
-    expect(imported.screens[2].processor?.ports).toEqual([]);
-    expect(imported.screens[2].config.emptyCabinetKeys).toEqual(['0-0', '1-0', '0-1', '1-1']);
+    assert.equal(imported.screens[2].sourceCabinetCount, 0);
+    assert.deepEqual(imported.screens[2].processor?.ports, []);
+    assert.deepEqual(imported.screens[2].config.emptyCabinetKeys, ['0-0', '1-0', '0-1', '1-1']);
   });
 });

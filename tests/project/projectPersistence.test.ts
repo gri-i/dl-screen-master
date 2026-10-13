@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
 import { finishDestructiveTransition, mergePresetsPreservingExisting, sessionPresetsForProject } from '../../src/shared/projectPersistence';
 import type { CabinetPreset, ScreenInstance } from '../../src/shared/types';
 
@@ -13,20 +14,20 @@ describe('project persistence', () => {
   it('keeps global presets and reports non-identical conflicts', () => {
     const existing = preset('global');
     const result = mergePresetsPreservingExisting([existing], [preset('new'), { ...existing, maxPowerW: 999 }]);
-    expect(result.presets.map((item) => item.id)).toEqual(['global', 'new']);
-    expect(result.conflicts).toHaveLength(1);
+    assert.deepEqual(result.presets.map((item) => item.id), ['global', 'new']);
+    assert.equal(result.conflicts.length, 1);
   });
 
   it('stores only session presets referenced by screens', () => {
-    expect(sessionPresetsForProject(screens, [], [preset('session'), preset('unused')]).map((item) => item.id)).toEqual(['session']);
-    expect(sessionPresetsForProject(screens, [preset('session')], [preset('session')])).toEqual([]);
+    assert.deepEqual(sessionPresetsForProject(screens, [], [preset('session'), preset('unused')]).map((item) => item.id), ['session']);
+    assert.deepEqual(sessionPresetsForProject(screens, [preset('session')], [preset('session')]), []);
   });
 
   it('does not destroy state on cancel, save cancellation, or recovery cleanup error', async () => {
     let saves = 0;
-    expect(await finishDestructiveTransition('cancel', async () => { saves++; return true; }, async () => undefined)).toBe(false);
-    expect(saves).toBe(0);
-    expect(await finishDestructiveTransition('save', async () => false, async () => undefined)).toBe(false);
-    await expect(finishDestructiveTransition('discard', async () => true, async () => { throw new Error('io'); })).rejects.toThrow('io');
+    assert.equal(await finishDestructiveTransition('cancel', async () => { saves++; return true; }, async () => undefined), false);
+    assert.equal(saves, 0);
+    assert.equal(await finishDestructiveTransition('save', async () => false, async () => undefined), false);
+    await assert.rejects(finishDestructiveTransition('discard', async () => true, async () => { throw new Error('io'); }), /io/);
   });
 });

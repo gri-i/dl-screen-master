@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
 import { buildResolumeXml } from '../../src/renderer/resolumeExport';
 import { syntheticScreen } from './fixtures';
 
@@ -6,24 +7,32 @@ describe('Resolume export', () => {
   it('builds a synthetic Advanced Output XML with one slice per assigned port', () => {
     const result = buildResolumeXml('Project & <fixture>', [syntheticScreen()]);
 
-    expect(result).not.toBeNull();
-    expect(result).toMatchObject({
+    assert.notEqual(result, null);
+    if (result === null) throw new Error('Expected a Resolume export result');
+    assert.deepEqual({
+      screens: result.screens,
+      slices: result.slices,
+      compositionWidth: result.compositionWidth,
+      compositionHeight: result.compositionHeight,
+      rotatedScreens: result.rotatedScreens
+    }, {
       screens: 1,
       slices: 2,
       compositionWidth: 256,
       compositionHeight: 256,
       rotatedScreens: []
     });
-    expect(result?.xml).toContain('name="Project &amp; &lt;fixture&gt;"');
-    expect(result?.xml).toContain('<Screen name="Synthetic screen"');
-    expect(result?.xml).toContain('Synthetic screen Sending card 1 1');
-    expect(result?.xml).toContain('Synthetic screen Sending card 2 2');
+    assert.ok(result.xml.includes('name="Project &amp; &lt;fixture&gt;"'));
+    assert.ok(result.xml.includes('<Screen name="Synthetic screen"'));
+    assert.ok(result.xml.includes('Synthetic screen Sending card 1 1'));
+    assert.ok(result.xml.includes('Synthetic screen Sending card 2 2'));
   });
 
   it('records rotated screens for manual verification in Resolume', () => {
     const result = buildResolumeXml('Rotated fixture', [syntheticScreen({ rotation: 90 })]);
 
-    expect(result?.rotatedScreens).toEqual(['Synthetic screen']);
+    if (result === null) throw new Error('Expected a rotated Resolume export result');
+    assert.deepEqual(result?.rotatedScreens, ['Synthetic screen']);
   });
 
   it('returns no export for a screen without assigned ports', () => {
@@ -34,6 +43,6 @@ describe('Resolume export', () => {
       }
     });
 
-    expect(buildResolumeXml('Empty fixture', [screen])).toBeNull();
+    assert.equal(buildResolumeXml('Empty fixture', [screen]), null);
   });
 });

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'node:test';
 import {
   DEFAULT_SIGNAL,
   GIGABIT_LEGACY_LINK,
@@ -12,17 +13,19 @@ import type { ProcessorPort } from '../../src/shared/types';
 
 describe('signal capacity', () => {
   it('uses the documented container packing rules', () => {
-    expect(wireBitsPerPixel(8)).toBe(24);
-    expect(wireBitsPerPixel(10)).toBe(32);
-    expect(wireBitsPerPixel(12)).toBe(48);
-    expect(wireBitsPerPixel(10, 'container-legacy')).toBe(48);
-    expect(wireBitsPerPixel(10, 'naive')).toBe(30);
+    assert.equal(wireBitsPerPixel(8), 24);
+    assert.equal(wireBitsPerPixel(10), 32);
+    assert.equal(wireBitsPerPixel(12), 48);
+    assert.equal(wireBitsPerPixel(10, 'container-legacy'), 48);
+    assert.equal(wireBitsPerPixel(10, 'naive'), 30);
   });
 
   it('calculates the legacy gigabit link at 650000 pixels for 8-bit 60 Hz', () => {
-    expect(linkCapacityPx(GIGABIT_LEGACY_LINK, DEFAULT_SIGNAL)).toBe(650000);
-    expect(portMaxPixels({ maxPixels: 650000, assignedCabinets: [], portId: 'P1' })).toBe(650000);
-    expect(portMaxFrameRate({ maxPixels: 650000, assignedCabinets: [], portId: 'P1' }, 650000, 8)).toBeCloseTo(60);
+    assert.equal(linkCapacityPx(GIGABIT_LEGACY_LINK, DEFAULT_SIGNAL), 650000);
+    assert.equal(portMaxPixels({ maxPixels: 650000, assignedCabinets: [], portId: 'P1' }), 650000);
+    const frameRate = portMaxFrameRate({ maxPixels: 650000, assignedCabinets: [], portId: 'P1' }, 650000, 8);
+    if (frameRate === null) throw new Error('Expected a frame-rate limit for the legacy link');
+    assert.ok(Math.abs(frameRate - 60) < 0.001);
   });
 
   it('reports pixel and cabinet-limit overloads', () => {
@@ -34,9 +37,9 @@ describe('signal capacity', () => {
     };
 
     const load = portLoad(port, 400);
-    expect(load.pixels).toBe(1200);
-    expect(load.percent).toBe(150);
-    expect(load.status).toBe('over');
-    expect(load.maxFrameRateHz).toBeNull();
+    assert.equal(load.pixels, 1200);
+    assert.equal(load.percent, 150);
+    assert.equal(load.status, 'over');
+    assert.equal(load.maxFrameRateHz, null);
   });
 });
