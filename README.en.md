@@ -28,7 +28,8 @@ calculators.
   - one click to add a **3-phase 32A → 6×16A distro box**, split across
     phases automatically.
 - **NovaStar import** — `.srcx`/`.scr` (a whole scene, auto-matched
-  against the cabinet library) and `.rcfg`/`.rcfgx` (a single cabinet).
+  against the cabinet library; multi-card records preserve sender offsets,
+  physical ports and cabinet order) and `.rcfg`/`.rcfgx` (a single cabinet).
 - **Projection patterns** — a Pixel Pattern generator (grid, circles,
   overlap) and a Metric Pattern mode for aligning multi-projector
   installations, with a display grid, overlap settings, and PNG/PDF

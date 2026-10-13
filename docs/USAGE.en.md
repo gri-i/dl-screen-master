@@ -85,6 +85,10 @@ parses a whole NovaStar scene file:
 - signal paths (controller, physical outputs, cabinet order within each
   chain) are restored automatically and show up right away in the
   "Wiring" section.
+- Multi-card scenes preserve sender-card offsets, physical ports and cabinet
+  order, including tables with padding and empty records. This was confirmed
+  against the real `h15_v3.scr` in a read-only check; the file was not added
+  to the repository.
 
 The import status (how many screens, how many matched the library, how
 many new presets were created) appears under the import button.
