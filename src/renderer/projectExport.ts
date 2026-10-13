@@ -1,7 +1,7 @@
 import type { CabinetPreset, PowerCircuit, PowerPlan, Processor, ProcessorPort, SignalFormat } from '@shared/types';
 import { DEFAULT_SIGNAL, portLoad, portMaxPixels } from '@shared/capacity';
 import type { Lang } from '@shared/lang';
-import { circuitLoad, routeColor, usablePowerPerPortW } from '@shared/powerLimits';
+import { circuitLoad, routeColor, routeHue, usablePowerPerPortW } from '@shared/powerLimits';
 
 const MESSAGES = {
   ru: {
@@ -255,7 +255,7 @@ export function buildScreenSvg(screen: ExportScreen, mode: 'signal' | 'power' = 
   // Заливка кабинетов цветом порта/цепи (50% прозрачности).
   const portFills = (routes ?? []).map((port, index) => port.assignedCabinets.map((key) => {
     const [col, row] = key.split('-').map(Number);
-    return `<rect x="${col * cellWidth}" y="${row * cellHeight}" width="${cellWidth}" height="${cellHeight}" fill="hsl(${index * 83} 78% 55%)" fill-opacity=".5"/>`;
+    return `<rect x="${col * cellWidth}" y="${row * cellHeight}" width="${cellWidth}" height="${cellHeight}" fill="hsl(${routeHue(index)} 78% 55%)" fill-opacity=".5"/>`;
   }).join('')).join('');
 
   const paths = routes?.map((port, index) => {
@@ -264,7 +264,7 @@ export function buildScreenSvg(screen: ExportScreen, mode: 'signal' | 'power' = 
       return { x: (col + .5) * cellWidth, y: (row + .5) * cellHeight };
     });
     if (centers.length === 0) return '';
-    const color = `hsl(${index * 83} 78% 55%)`;
+    const color = `hsl(${routeHue(index)} 78% 55%)`;
     const strokeWidth = Math.min(cellWidth, cellHeight) * .035;
     const arrowSize = Math.min(cellWidth, cellHeight) * .08;
     const segments = centers.slice(0, -1).map((point, segmentIndex) => {
@@ -298,7 +298,7 @@ export function buildScreenSvg(screen: ExportScreen, mode: 'signal' | 'power' = 
       const chipWidth = Math.min(cellWidth * .94, route.label.length * portFontSize * .64 + portFontSize);
       const chipX = x + (cellWidth - chipWidth) / 2;
       const chipY = y + cellHeight - chipHeight - cellHeight * .05;
-      const color = `hsl(${route.colorIndex * 83} 78% 55%)`;
+      const color = `hsl(${routeHue(route.colorIndex)} 78% 55%)`;
       const portChip = `<rect x="${chipX}" y="${chipY}" width="${chipWidth}" height="${chipHeight}" rx="${chipHeight * .25}" fill="${color}" stroke="#fff" stroke-width="${portFontSize * .08}"/><text x="${x + cellWidth / 2}" y="${chipY + chipHeight / 2}" fill="#07131a" font-size="${portFontSize}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${escapeXml(route.label)}</text>`;
       return `${coordText}${portChip}`;
     }).join('')
@@ -319,7 +319,7 @@ export function buildReportHtml(projectName: string, screens: ExportScreen[], la
     const pixelsPerCabinet = screen.preset.resolutionX * screen.preset.resolutionY;
     const signalRows = ports.map((port, portIndex) => {
       const load = portLoad(port, pixelsPerCabinet, signal);
-      const color = `hsl(${portIndex * 83} 78% 55%)`;
+      const color = `hsl(${routeHue(portIndex)} 78% 55%)`;
       const barColor = load.status === 'over' ? '#dc2626' : load.status === 'tight' ? '#d98e04' : color;
       const swatch = { html: `<span class="swatch" style="background:${color}"></span>` };
       const bar = { html: `<span class="load is-${load.status}"><span class="load-bar"><i style="width:${Math.min(load.percent, 100)}%;background:${barColor}"></i></span><b>${load.percent}%</b></span>` };

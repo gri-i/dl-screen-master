@@ -27,4 +27,6 @@ export function circuitLoad(cabinetCount: number, cabinetMaxPowerW: number, usab
 }
 
 /** Цвет маршрута (порт/цепь) по индексу — одна палитра на холсте, в панели и в экспорте. */
-export const routeColor = (index: number): string => `hsl(${index * 83} 78% 55%)`;
+/** Золотое-угловое смещение по кругу; старт с синего (200°), чтобы первый маршрут не был красным — красный занят под «перегрузку». */
+export const routeHue = (index: number): number => (index * 83 + 200) % 360;
+export const routeColor = (index: number): string => `hsl(${routeHue(index)} 78% 55%)`;

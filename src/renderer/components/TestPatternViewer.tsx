@@ -30,7 +30,7 @@ import {
   type RoutingPattern,
   type StartCorner
 } from '@shared/autoRouting';
-import { routeColor, usablePowerPerPortW } from '@shared/powerLimits';
+import { routeColor, routeHue, usablePowerPerPortW } from '@shared/powerLimits';
 import type { Lang } from '@shared/lang';
 import { useLanguage } from '../i18n/context';
 
@@ -1790,10 +1790,10 @@ export function TestPatternViewer({
         return { x: (col + .5) * cabinetWidth, y: (row + .5) * cabinetHeight };
       });
       if (centers.length === 0) return;
-      const color = `hsl(${portIndex * 83} 78% 38%)`;
+      const color = `hsl(${routeHue(portIndex)} 78% 38%)`;
       // Заливка кабинетов цветом порта, прозрачность 50% (тот же hue, что и на холсте).
       context.save();
-      context.fillStyle = `hsl(${portIndex * 83} 78% 55% / .5)`;
+      context.fillStyle = `hsl(${routeHue(portIndex)} 78% 55% / .5)`;
       port.assignedCabinets.forEach((key) => {
         const [col, row] = key.split('-').map(Number);
         context.fillRect(col * cabinetWidth, row * cabinetHeight, cabinetWidth, cabinetHeight);
@@ -2511,7 +2511,7 @@ export function TestPatternViewer({
                           const groupIndex = autoPreviewMode === 'data'
                             ? autoPreviewProcessor?.ports.findIndex((port) => port.assignedCabinets.includes(key)) ?? -1
                             : autoPreviewPowerPlan?.circuits.findIndex((circuit) => circuit.assignedCabinets.includes(key)) ?? -1;
-                          return <span key={key} style={groupIndex >= 0 ? { background: `hsl(${groupIndex * 83} 62% 38%)` } : undefined}>{orderIndex + 1}</span>;
+                          return <span key={key} style={groupIndex >= 0 ? { background: `hsl(${routeHue(groupIndex)} 62% 38%)` } : undefined}>{orderIndex + 1}</span>;
                         })
                       )}
                     </div>
@@ -2668,7 +2668,7 @@ export function TestPatternViewer({
                       {group.ports.map((port) => {
                     const portIndex = selectedDataScreen.processor!.ports.indexOf(port);
                     const load = portLoad(port, (selectedDataPreset?.resolutionX ?? 0) * (selectedDataPreset?.resolutionY ?? 0), signal);
-                    const portColor = `hsl(${portIndex * 83} 78% 55%)`;
+                    const portColor = `hsl(${routeHue(portIndex)} 78% 55%)`;
                     const fps = load.maxFrameRateHz !== null && load.maxFrameRateHz < 1000 ? ` · ≤${Math.floor(load.maxFrameRateHz)} fps` : '';
                     return (
                       <button
@@ -2861,7 +2861,7 @@ export function TestPatternViewer({
                       >
                         {screen.processor.ports.flatMap((port, portIndex) => port.assignedCabinets.map((key) => {
                           const [col, row] = key.split('-').map(Number);
-                          return <rect key={`${port.portId}-${key}`} x={col * cellW} y={row * cellH} width={cellW} height={cellH} fill={`hsl(${portIndex * 83} 78% 55% / .5)`} />;
+                          return <rect key={`${port.portId}-${key}`} x={col * cellW} y={row * cellH} width={cellW} height={cellH} fill={`hsl(${routeHue(portIndex)} 78% 55% / .5)`} />;
                         }))}
                         {screen.processor.ports.map((port, portIndex) => {
                           const centers = port.assignedCabinets.map((key) => {
@@ -2873,7 +2873,7 @@ export function TestPatternViewer({
                           const last = port.assignedCabinets.at(-1)?.split('-').map(Number);
                           const portPixels = port.assignedCabinets.length * screenPreset.resolutionX * screenPreset.resolutionY;
                           const overloaded = portPixels > portMaxPixels(port, signal) || (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets);
-                          const color = overloaded ? '#dc2626' : `hsl(${portIndex * 83} 78% 38%)`;
+                          const color = overloaded ? '#dc2626' : `hsl(${routeHue(portIndex)} 78% 38%)`;
                           return (
                             <g key={port.portId} className={selectedPlacedScreenId === screen.id && activeDataPortId && activeDataPortId !== port.portId ? 'is-dimmed' : ''}>
                               {port.assignedCabinets.length > 1 && (
