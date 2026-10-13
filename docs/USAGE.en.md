@@ -203,6 +203,20 @@ On the Pixel mask/Wiring toolbar:
   each screen's mask separately.
 - **"PNG with paths"** — the same, with the signal-path diagram
   overlaid (available once a screen has a controller configured).
+- **"Cabinets CSV"** — saves one `<project-name>-cabinets.csv` file. It is
+  UTF-8 with BOM and `;` separators, with one row per installed cabinet.
+  Each row includes the screen, controller, sending card, physical port,
+  chain order, pixel/mm coordinates, model and receiving card. Cabinets
+  assigned to ports are listed in signal order; unassigned cabinets are
+  appended with the `UNPATCHED` status.
+- **"Resolume XML"** — saves an **Advanced Output** XML draft with one
+  Screen per screen and one Slice per port that has assigned cabinets. At
+  least one signal route is required. After saving, put the file in
+  `Documents/Resolume Arena/Presets/Advanced Output` and assign physical
+  outputs manually: `deviceId`/`idHash` are machine-specific and are not
+  synthesized. For rotated screens, set output rotation in Resolume too.
+  Live Arena import has not been verified, and the XML format may vary by
+  Resolume version.
 - **"Export PDF"** — a project PDF report: a screen summary table and,
   for each screen, pages with its mask, signal-path diagram and
   power-circuit diagram (with port/circuit tables and overload status).
@@ -213,8 +227,10 @@ On the Pixel mask/Wiring toolbar:
 
 - **"New"** — clears the current layout and starts a new project.
 - **"Open"** / **"Save"** — work with `.dlscreen` (JSON) project files
-  through the system file dialog; the cabinet library isn't part of the
-  project file and is stored separately (in the app's profile).
+  through the system file dialog. The user cabinet library is stored in the
+  project's `customPresets` field; opening the project makes it the current
+  library and also writes it to the app profile. Built-in presets and
+  temporary imported data should not be confused with this field.
 - **"Clear all"** — removes every screen from the current workspace.
 
 For details on exactly what's stored in a project file and how the data

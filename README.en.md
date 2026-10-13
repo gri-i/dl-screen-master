@@ -39,9 +39,18 @@ calculators.
   blanking, DSC).
 - **Export** — PNG mask (combined and per-screen for multiple selected
   screens), PNG with the signal-path overlay, a project PDF report with
-  a summary table, masks and wiring diagrams.
-- **`.dlscreen` projects** — save/open through Electron IPC; the custom
-  cabinet library is stored separately from the project file.
+  a summary table, masks and wiring diagrams, a cabinet CSV schedule, and
+  a Resolume Advanced Output XML draft.
+- **Cabinet CSV schedule** — one UTF-8 CSV with BOM and `;` separators,
+  one row per cabinet, including coordinates, model, port and chain order;
+  routed cabinets are listed by port order and unrouted cabinets at the end.
+- **Resolume XML** — an Advanced Output draft with one Screen per screen and
+  one Slice per port. Signal routes are required; assign physical outputs in
+  Resolume manually, and set output rotation manually for rotated screens.
+  Live Arena import has not been verified, and the format can vary by version.
+- **`.dlscreen` projects** — save/open through Electron IPC; user cabinet
+  presets are stored in the project's `customPresets` field and restored to
+  the app profile when the project is opened.
 - **Color themes** — 8 DreamLaser Design System themes, applied
   instantly and remembered between launches.
 - **Two interface languages** — Russian and English, switchable in
@@ -75,6 +84,15 @@ npm run dev      # start in development mode
 npm run build     # production build of renderer/main
 npm run package   # build an installer (electron-builder)
 ```
+
+`npm run package` builds local installers into `release/` for Windows x64 and
+macOS x64/arm64. This does not mean that the current branch or `main` is a
+released installer. Version 0.2.0 corresponds to tag `v0.2.0`
+([e8451a6](https://github.com/gri-i/dl-screen-master/commit/e8451a6)); later
+changes remain in `Unreleased`.
+
+macOS builds are unsigned (`identity: null`); on first launch, use
+right-click → **Open**.
 
 ## Documentation
 
