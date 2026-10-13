@@ -259,19 +259,28 @@ On the Pixel mask/Wiring toolbar:
   nested presets, screens, coordinates and routes are checked, and v1
   normalization is supported. Legacy v1 projects may omit optional `signal`,
   `processor`, `powerPlan`, `visualSettings` and `sessionPresets`; visual
-  defaults are normalized safely. The project snapshot stores only user presets
-  referenced by its screens. The global library is preserved and merged on
-  open; non-identical `id` or brand+model conflicts are reported instead of
-  being silently overwritten. Rejection is limited to malformed data,
+  defaults are normalized safely. The global library is authoritative and is
+  never replaced by an opened project. Identical collisions are skipped;
+  non-identical `id` or normalized brand+model conflicts are rejected before
+  state/profile mutation. Project-local `sessionPresets` are saved only when
+  referenced by a screen and survive a round trip. Rejection is limited to malformed data,
   non-finite or out-of-range coordinates/routes, missing preset references,
   invalid nested types and unsafe preset conflicts.
 - Project saves are atomic and clear
   `userData/recovery/current.dlscreen-recovery.json` only after success. When
-  the project is dirty, **New**, **Open** and app close use a save
-  confirmation; cancel, save failure or recovery-cleanup failure stops the
-  destructive transition. If recovery is found, restoring it also requires
-  explicit confirmation. Recovery autosaves use a generation guard against
-  stale writes.
+  the project is dirty, **New** and **Open** use a save confirmation: **Save**
+  continues only after a successful write, **Don't save** only after recovery
+  cleanup succeeds, and cancel, a closed save dialog, write failure or cleanup
+  failure leaves the transition cancelled. On close/quit, main intercepts the
+  dirty BrowserWindow close, shows native **Save / Don't save / Cancel**, and
+  waits for the renderer result.
+- Recovery is debounced by 700 ms into
+  `userData/recovery/current.dlscreen-recovery.json`; the source `.dlscreen`
+  is never overwritten. Writes use temp-file-plus-rename, main serializes
+  recovery save/clear operations, and the renderer generation guard discards
+  stale autosaves after Save/New/Open. On restart, **Restore / Ignore / Cancel**
+  is offered; corrupt recovery is reported and safely removed. IO failures
+  remain visible and block destructive discard.
 - **"Clear all"** — removes every screen from the current workspace.
 
 For details on exactly what's stored in a project file and how the data

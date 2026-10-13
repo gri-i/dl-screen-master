@@ -53,10 +53,12 @@ calculators.
   Resolume manually, and set output rotation manually for rotated screens.
   Live Arena import has not been verified, and the format can vary by version.
 - **`.dlscreen` projects** — save/open through Electron IPC; user cabinet
-  snapshots contain only presets referenced by the project's screens; the
-  global library is preserved and merged on open, while incompatible `id` or
-  brand+model conflicts are reported. Saves are atomic, dirty transitions are
-  guarded, and recovery is available after a failure.
+  the global library is authoritative and is never replaced by an opened
+  project; identical presets are skipped, while incompatible `id` or
+  normalized brand+model conflicts are rejected before state/profile changes.
+  Project-local `sessionPresets` are saved only when referenced by a screen and
+  survive a round trip. Saves are atomic, dirty transitions are guarded, and
+  recovery is available after a failure.
 - **Color themes** — 8 DreamLaser Design System themes, applied
   instantly and remembered between launches.
 - **Two interface languages** — Russian and English, switchable in
