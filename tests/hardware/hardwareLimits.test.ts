@@ -112,14 +112,29 @@ describe('receiving-card hardware limits', () => {
   });
 
   it('checks A10s Pro 8/10-bit and 12-bit boundaries', () => {
-    expect(checkReceiverCard(preset('A10s Pro', 512, 512), signal(8))).toMatchObject({ status: 'ok', ok: true, limitWidth: 512, limitHeight: 512 });
+    const eightBit = checkReceiverCard(preset('A10s Pro', 512, 512), signal(8));
+    expect(eightBit).toMatchObject({ status: 'ok', ok: true, limitWidth: 512, limitHeight: 512 });
+    expect(eightBit.source).toBe('https://oss.novastar.tech/uploads/2024/12/A10s-Pro-Receiving-Card-Specifications-V1.3.0.pdf');
+    expect(eightBit.applicability).toContain('8/10-bit');
+
+    expect(checkReceiverCard(preset('A10s Pro', 512, 512), signal(10))).toMatchObject({ status: 'ok', ok: true, limitWidth: 512, limitHeight: 512 });
     expect(checkReceiverCard(preset('A10s Pro', 513, 512), signal(8))).toMatchObject({ status: 'overload', ok: false });
-    expect(checkReceiverCard(preset('A10s Pro', 512, 256), signal(12))).toMatchObject({ status: 'ok', ok: true, limitHeight: 256 });
+
+    // NovaStar's A10s Pro specification explicitly assigns 512×256@60Hz to
+    // 12-bit sources; keep this regression separate from the 8/10-bit case.
+    const twelveBit = checkReceiverCard(preset('A10s Pro', 512, 256), signal(12));
+    expect(twelveBit).toMatchObject({ status: 'ok', ok: true, limitWidth: 512, limitHeight: 256 });
+    expect(twelveBit.source).toBe(eightBit.source);
+    expect(twelveBit.applicability).toContain('12-bit');
     expect(checkReceiverCard(preset('A10s Pro', 512, 257), signal(12))).toMatchObject({ status: 'overload', ok: false });
   });
 
   it('requires the driver variant where NovaStar has different limits', () => {
-    expect(checkReceiverCard(preset('A8s', 512, 384), signal(8))).toMatchObject({ status: 'unknown', ok: false });
+    const missingDriver = checkReceiverCard(preset('A8s', 512, 384), signal(8));
+    expect(missingDriver).toMatchObject({ status: 'unknown', ok: false });
+    expect(missingDriver.reason).toContain('driver IC variant');
+    expect(missingDriver.source).toBe('https://oss.novastar.tech/uploads/2023/01/A8s-Receiving-Card-Specifications-V2.2.3.pdf');
+    expect(missingDriver.applicability).toContain('driver IC type is required');
     expect(checkReceiverCard(preset('A8s PWM', 512, 384), signal(8))).toMatchObject({ status: 'ok', ok: true });
     expect(checkReceiverCard(preset('A8s common', 385, 384), signal(8))).toMatchObject({ status: 'overload', ok: false, limitWidth: 384 });
     expect(checkReceiverCard(preset('A5s Plus common', 193, 384), signal(12))).toMatchObject({ status: 'overload', ok: false, limitWidth: 192 });
