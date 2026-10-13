@@ -74,6 +74,7 @@ export function App(): JSX.Element {
   const transitionTargetRef = React.useRef<ScreenInstance[] | null>(null);
   const recoveryCheckedRef = React.useRef(false);
   const recoveryTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recoveryGenerationRef = React.useRef(0);
   const transitionInProgressRef = React.useRef(false);
   const [gridConfig, setGridConfig] = useState<PowerGridConfig>(() => {
     try {
@@ -108,9 +109,14 @@ export function App(): JSX.Element {
     if (initializedRef.current) setDirty(true);
   }
 
+  function invalidateRecoveryWrites(): void {
+    recoveryGenerationRef.current += 1;
+  }
+
   async function confirmDestructiveTransition(): Promise<boolean> {
     if (!dirty) return true;
     const choice = await window.projectFiles.confirmDiscard(lang);
+    if (choice === 'discard') invalidateRecoveryWrites();
     try {
       return await finishDestructiveTransition(choice, saveProject, window.projectRecovery.clear);
     } catch (error) {
@@ -124,6 +130,8 @@ export function App(): JSX.Element {
     transitionInProgressRef.current = true;
     try {
       if (!(await confirmDestructiveTransition())) return;
+      invalidateRecoveryWrites();
+      await window.projectRecovery.clear();
       transitionTargetRef.current = [];
       setProjectName(t('app.newProjectName'));
       setProjectPath(undefined);
@@ -158,7 +166,9 @@ export function App(): JSX.Element {
       const nextSessionPresets = (project.sessionPresets ?? []).filter((preset) =>
         !mergedCustom.presets.some((existing) => existing.id === preset.id));
       // Global presets are merged, never replaced by a project-local list.
+      await window.projectRecovery.clear();
       await window.presetFiles.save(mergedCustom.presets);
+      invalidateRecoveryWrites();
       transitionTargetRef.current = project.screens;
       setCustomPresets(mergedCustom.presets);
       setSessionPresets(nextSessionPresets);
@@ -178,6 +188,7 @@ export function App(): JSX.Element {
   }
 
   async function saveProject(): Promise<boolean> {
+    invalidateRecoveryWrites();
     const project: Project = { ...currentProject, updatedAt: new Date().toISOString() };
     try {
       const savedPath = await window.projectFiles.save(project, projectPath);
@@ -237,6 +248,7 @@ export function App(): JSX.Element {
       const choice = await window.projectFiles.confirmRecovery(lang);
       if (choice === 'cancel') return;
       if (choice === 'ignore') {
+        invalidateRecoveryWrites();
         try {
           await window.projectRecovery.clear();
         } catch (error) {
@@ -281,7 +293,9 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (!profileReady || !dirty) return;
     if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+    const generation = recoveryGenerationRef.current;
     recoveryTimerRef.current = setTimeout(() => {
+      if (generation !== recoveryGenerationRef.current) return;
       void window.projectRecovery.save(currentProject, projectPath).catch((error) => {
         setProjectStatus(t('app.status.recoverySaveFailed', { message: error instanceof Error ? error.message : '' }));
       });

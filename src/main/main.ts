@@ -20,9 +20,16 @@ let windowDirty = false;
 let windowLang: Lang = 'ru';
 let closeFlowInProgress = false;
 let closeSaveWaiter: ((saved: boolean) => void) | null = null;
+let recoveryOperation = Promise.resolve();
 
 function recoveryPath(): string {
   return path.join(app.getPath('userData'), 'recovery', 'current.dlscreen-recovery.json');
+}
+
+function queueRecoveryOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const next = recoveryOperation.then(operation, operation);
+  recoveryOperation = next.then(() => undefined, () => undefined);
+  return next;
 }
 
 function localizedCloseDialog(lang: Lang): { message: string; detail: string; buttons: [string, string, string] } {
@@ -62,7 +69,7 @@ async function confirmClose(): Promise<void> {
     } else if (choice === 'cancel') {
       return;
     } else {
-      await rm(recoveryPath(), { force: true });
+      await queueRecoveryOperation(() => rm(recoveryPath(), { force: true }));
     }
     windowDirty = false;
     win.destroy();
@@ -109,30 +116,32 @@ ipcMain.on('app:set-dirty', (_event, dirty: unknown, lang: Lang = 'ru') => {
 });
 
 ipcMain.handle('app:recovery-load', async (): Promise<RecoveryLoadResult> => {
-  try {
-    const value = await readJson(recoveryPath());
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return { status: 'corrupt' };
-    const record = value as { project?: unknown; filePath?: unknown; savedAt?: unknown };
-    if (!record.project || typeof record.savedAt !== 'string') return { status: 'corrupt' };
-    return {
-      status: 'available',
-      project: record.project,
-      filePath: typeof record.filePath === 'string' ? record.filePath : undefined,
-      savedAt: record.savedAt
-    };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'none' };
-    if (error instanceof SyntaxError) return { status: 'corrupt' };
-    return { status: 'error', message: error instanceof Error ? error.message : String(error) };
-  }
+  return queueRecoveryOperation(async () => {
+    try {
+      const value = await readJson(recoveryPath());
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return { status: 'corrupt' };
+      const record = value as { project?: unknown; filePath?: unknown; savedAt?: unknown };
+      if (!record.project || typeof record.savedAt !== 'string') return { status: 'corrupt' };
+      return {
+        status: 'available' as const,
+        project: record.project,
+        filePath: typeof record.filePath === 'string' ? record.filePath : undefined,
+        savedAt: record.savedAt
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'none' as const };
+      if (error instanceof SyntaxError) return { status: 'corrupt' as const };
+      return { status: 'error' as const, message: error instanceof Error ? error.message : String(error) };
+    }
+  });
 });
 
 ipcMain.handle('app:recovery-save', async (_event, project: Project, filePath?: string): Promise<void> => {
-  await writeJsonAtomically(recoveryPath(), { version: 1, savedAt: new Date().toISOString(), filePath, project });
+  await queueRecoveryOperation(() => writeJsonAtomically(recoveryPath(), { version: 1, savedAt: new Date().toISOString(), filePath, project }));
 });
 
 ipcMain.handle('app:recovery-clear', async (): Promise<void> => {
-  await rm(recoveryPath(), { force: true });
+  await queueRecoveryOperation(() => rm(recoveryPath(), { force: true }));
 });
 
 ipcMain.handle('project:open', async (): Promise<{ filePath: string; project: unknown } | null> => {
@@ -158,7 +167,7 @@ ipcMain.handle('project:save', async (_event, project: Project, currentPath?: st
     filePath = result.filePath;
   }
   await writeJsonAtomically(filePath, project);
-  await rm(recoveryPath(), { force: true });
+  await queueRecoveryOperation(() => rm(recoveryPath(), { force: true }));
   return filePath;
 });
 
