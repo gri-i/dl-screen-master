@@ -91,6 +91,8 @@ export interface Project {
   updatedAt: string;
   screens: ScreenInstance[];
   customPresets: CabinetPreset[];
+  /** Presets imported into this project but not necessarily in the global library. */
+  sessionPresets?: CabinetPreset[];
   signal?: SignalFormat;
 }
 

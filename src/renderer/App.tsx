@@ -7,6 +7,8 @@ import { BandwidthCalculator } from './components/BandwidthCalculator';
 import type { CabinetPreset, PowerGridConfig, Project, ScreenInstance, SignalFormat, UiSkin } from '@shared/types';
 import { DEFAULT_SIGNAL } from '@shared/capacity';
 import { mergeUniquePresets } from '@shared/presetValidation';
+import { buildProjectSnapshot, finishDestructiveTransition, mergePresetsPreservingExisting } from '@shared/projectPersistence';
+import { parseProject, ProjectValidationError } from '@shared/projectValidation';
 import { useLanguage } from './i18n/context';
 import './styles.css';
 
@@ -65,7 +67,14 @@ export function App(): JSX.Element {
   const [projectCreatedAt, setProjectCreatedAt] = useState(() => new Date().toISOString());
   const [signal, setSignal] = useState<SignalFormat>(DEFAULT_SIGNAL);
   const [projectStatus, setProjectStatus] = useState('');
+  const [profileReady, setProfileReady] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [uiSkin, setUiSkin] = useState<UiSkin>(readUiSkin);
+  const initializedRef = React.useRef(false);
+  const transitionTargetRef = React.useRef<ScreenInstance[] | null>(null);
+  const recoveryCheckedRef = React.useRef(false);
+  const recoveryTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transitionInProgressRef = React.useRef(false);
   const [gridConfig, setGridConfig] = useState<PowerGridConfig>(() => {
     try {
       const stored = window.localStorage.getItem(GRID_CONFIG_KEY);
@@ -75,65 +84,111 @@ export function App(): JSX.Element {
     }
   });
   const presets = useMemo(() => mergeUniquePresets(customPresets, sessionPresets, { skipDuplicates: true, lang }), [customPresets, sessionPresets]);
+  const currentProject = useMemo(() => buildProjectSnapshot({
+    name: projectName,
+    createdAt: projectCreatedAt,
+    screens: projectScreens,
+    customPresets,
+    sessionPresets,
+    signal
+  }), [projectName, projectCreatedAt, projectScreens, customPresets, sessionPresets, signal]);
   const calculatorPreset = presets.find((preset) => preset.id === screenConfig.presetId) ?? presets[0];
   const handleProjectScreensChange = useCallback((screens: ScreenInstance[]) => {
     setProjectScreens(screens);
+    if (!initializedRef.current) return;
+    const target = transitionTargetRef.current;
+    if (target) {
+      if (JSON.stringify(target) === JSON.stringify(screens)) transitionTargetRef.current = null;
+      return;
+    }
+    setDirty(true);
   }, []);
 
-  function newProject(): void {
-    setProjectName(t('app.newProjectName'));
-    setProjectPath(undefined);
-    setProjectCreatedAt(new Date().toISOString());
-    setScreensToLoad([]);
-    setSignal(DEFAULT_SIGNAL);
-    setProjectLoadSignal((value) => value + 1);
-    setProjectStatus(t('app.status.newProject'));
-    setSessionPresets([]);
+  function markDirty(): void {
+    if (initializedRef.current) setDirty(true);
+  }
+
+  async function confirmDestructiveTransition(): Promise<boolean> {
+    if (!dirty) return true;
+    const choice = await window.projectFiles.confirmDiscard(lang);
+    try {
+      return await finishDestructiveTransition(choice, saveProject, window.projectRecovery.clear);
+    } catch (error) {
+      setProjectStatus(error instanceof Error ? error.message : t('app.status.recoveryClearFailed', { message: '' }));
+      return false;
+    }
+  }
+
+  async function newProject(): Promise<void> {
+    if (transitionInProgressRef.current) return;
+    transitionInProgressRef.current = true;
+    try {
+      if (!(await confirmDestructiveTransition())) return;
+      transitionTargetRef.current = [];
+      setProjectName(t('app.newProjectName'));
+      setProjectPath(undefined);
+      setProjectCreatedAt(new Date().toISOString());
+      setScreensToLoad([]);
+      setSignal(DEFAULT_SIGNAL);
+      setProjectLoadSignal((value) => value + 1);
+      setProjectStatus(t('app.status.newProject'));
+      setSessionPresets([]);
+      setDirty(false);
+    } finally {
+      transitionInProgressRef.current = false;
+    }
   }
 
   async function openProject(): Promise<void> {
+    if (transitionInProgressRef.current) return;
+    transitionInProgressRef.current = true;
     try {
+      if (!(await confirmDestructiveTransition())) return;
       const result = await window.projectFiles.open();
       if (!result) return;
-      const project = result.project;
-      if (project.format !== 'dl-screen-master-project' || project.version !== 1 || !Array.isArray(project.screens)) {
-        throw new Error(t('app.status.unsupportedFormat'));
+      const project = parseProject(result.project, { lang, availablePresets: customPresets });
+      const mergedCustom = mergePresetsPreservingExisting(customPresets, project.customPresets);
+      if (mergedCustom.conflicts.length > 0) {
+        throw new Error(t('app.status.presetConflict', { count: mergedCustom.conflicts.length }));
       }
-      const nextPresets = Array.isArray(project.customPresets) ? project.customPresets : [];
-      setCustomPresets(nextPresets);
-      setSessionPresets([]);
-      await window.presetFiles.save(nextPresets);
+      const sessionMerge = mergePresetsPreservingExisting(mergedCustom.presets, project.sessionPresets ?? []);
+      if (sessionMerge.conflicts.length > 0) {
+        throw new Error(t('app.status.presetConflict', { count: sessionMerge.conflicts.length }));
+      }
+      const nextSessionPresets = (project.sessionPresets ?? []).filter((preset) =>
+        !mergedCustom.presets.some((existing) => existing.id === preset.id));
+      // Global presets are merged, never replaced by a project-local list.
+      await window.presetFiles.save(mergedCustom.presets);
+      transitionTargetRef.current = project.screens;
+      setCustomPresets(mergedCustom.presets);
+      setSessionPresets(nextSessionPresets);
       setProjectName(project.name || t('app.status.untitled'));
       setProjectPath(result.filePath);
-      setProjectCreatedAt(project.createdAt || new Date().toISOString());
+      setProjectCreatedAt(project.createdAt);
       setScreensToLoad(project.screens);
       setSignal(project.signal ?? DEFAULT_SIGNAL);
       setProjectLoadSignal((value) => value + 1);
       setProjectStatus(t('app.status.opened', { path: result.filePath }));
+      setDirty(false);
     } catch (error) {
-      setProjectStatus(error instanceof Error ? error.message : t('app.status.openFailed'));
+      setProjectStatus(error instanceof ProjectValidationError ? error.message : error instanceof Error ? error.message : t('app.status.openFailed'));
+    } finally {
+      transitionInProgressRef.current = false;
     }
   }
 
-  async function saveProject(): Promise<void> {
-    const now = new Date().toISOString();
-    const project: Project = {
-      format: 'dl-screen-master-project',
-      version: 1,
-      name: projectName,
-      createdAt: projectCreatedAt,
-      updatedAt: now,
-      screens: projectScreens,
-      customPresets,
-      signal
-    };
+  async function saveProject(): Promise<boolean> {
+    const project: Project = { ...currentProject, updatedAt: new Date().toISOString() };
     try {
       const savedPath = await window.projectFiles.save(project, projectPath);
-      if (!savedPath) return;
+      if (!savedPath) return false;
       setProjectPath(savedPath);
       setProjectStatus(t('app.status.saved', { path: savedPath }));
+      setDirty(false);
+      return true;
     } catch (error) {
       setProjectStatus(error instanceof Error ? error.message : t('app.status.saveFailed'));
+      return false;
     }
   }
 
@@ -142,6 +197,7 @@ export function App(): JSX.Element {
     // приводит к падению всего интерфейса, а не к сообщению об импорте.
     mergeUniquePresets([], imported, { skipDuplicates: true, lang });
     setSessionPresets((current) => mergeUniquePresets(current, imported, { skipDuplicates: true, lang }));
+    markDirty();
   }
 
   useEffect(() => {
@@ -155,8 +211,85 @@ export function App(): JSX.Element {
         }
       }
       window.localStorage.removeItem(CUSTOM_PRESETS_KEY);
-    }).catch((error) => setProjectStatus(error instanceof Error ? error.message : t('app.status.presetsLoadFailed')));
+      setProfileReady(true);
+      initializedRef.current = true;
+    }).catch((error) => {
+      setProjectStatus(error instanceof Error ? error.message : t('app.status.presetsLoadFailed'));
+      setProfileReady(true);
+      initializedRef.current = true;
+    });
   }, []);
+
+  useEffect(() => {
+    if (!profileReady || recoveryCheckedRef.current) return;
+    recoveryCheckedRef.current = true;
+    void window.projectRecovery.load().then(async (recovery) => {
+      if (recovery.status === 'corrupt') {
+        setProjectStatus(t('app.status.recoveryCorrupt'));
+        await window.projectRecovery.clear().catch(() => undefined);
+        return;
+      }
+      if (recovery.status === 'error') {
+        setProjectStatus(t('app.status.recoveryLoadFailed', { message: recovery.message ?? '' }));
+        return;
+      }
+      if (recovery.status !== 'available' || !recovery.project) return;
+      const choice = await window.projectFiles.confirmRecovery(lang);
+      if (choice === 'cancel') return;
+      if (choice === 'ignore') {
+        try {
+          await window.projectRecovery.clear();
+        } catch (error) {
+          setProjectStatus(error instanceof Error ? error.message : t('app.status.recoveryClearFailed', { message: '' }));
+          return;
+        }
+        setProjectStatus(t('app.status.recoveryIgnored'));
+        return;
+      }
+      try {
+        const project = parseProject(recovery.project, { lang, availablePresets: customPresets });
+        const merged = mergePresetsPreservingExisting(customPresets, project.customPresets);
+        if (merged.conflicts.length > 0) throw new Error(t('app.status.presetConflict', { count: merged.conflicts.length }));
+        const session = (project.sessionPresets ?? []).filter((preset) =>
+          !merged.presets.some((existing) => existing.id === preset.id));
+        await window.presetFiles.save(merged.presets);
+        transitionTargetRef.current = project.screens;
+        setCustomPresets(merged.presets);
+        setSessionPresets(session);
+        setProjectName(project.name);
+        setProjectPath(recovery.filePath);
+        setProjectCreatedAt(project.createdAt);
+        setScreensToLoad(project.screens);
+        setSignal(project.signal ?? DEFAULT_SIGNAL);
+        setProjectLoadSignal((value) => value + 1);
+        setDirty(true);
+        setProjectStatus(t('app.status.recovered'));
+      } catch (error) {
+        setProjectStatus(error instanceof Error ? error.message : t('app.status.recoveryLoadFailed', { message: '' }));
+      }
+    }).catch((error) => setProjectStatus(error instanceof Error ? error.message : t('app.status.recoveryLoadFailed', { message: '' })));
+  }, [profileReady]);
+
+  useEffect(() => {
+    window.appLifecycle.setDirty(dirty, lang);
+  }, [dirty, lang]);
+
+  useEffect(() => window.appLifecycle.onCloseSaveRequest(() => {
+    void saveProject().then((saved) => window.appLifecycle.sendCloseSaveResult(saved));
+  }), [currentProject, projectPath]);
+
+  useEffect(() => {
+    if (!profileReady || !dirty) return;
+    if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+    recoveryTimerRef.current = setTimeout(() => {
+      void window.projectRecovery.save(currentProject, projectPath).catch((error) => {
+        setProjectStatus(t('app.status.recoverySaveFailed', { message: error instanceof Error ? error.message : '' }));
+      });
+    }, 700);
+    return () => {
+      if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+    };
+  }, [currentProject, dirty, profileReady, projectPath]);
 
   useEffect(() => {
     setScreenConfig((current) => {
@@ -186,7 +319,7 @@ export function App(): JSX.Element {
           <input
             aria-label={t('app.projectNameLabel')}
             value={projectName}
-            onChange={(event) => setProjectName(event.target.value)}
+            onChange={(event) => { setProjectName(event.target.value); markDirty(); }}
           />
           {projectStatus && <span title={projectStatus}>{projectStatus}</span>}
         </div>
@@ -274,7 +407,7 @@ export function App(): JSX.Element {
               projectLoadSignal={projectLoadSignal}
               onProjectScreensChange={handleProjectScreensChange}
               signal={signal}
-              onSignalChange={setSignal}
+              onSignalChange={(nextSignal) => { setSignal(nextSignal); markDirty(); }}
             /> : (
               <section className="empty-preset-state">
                 <div>
@@ -307,7 +440,7 @@ export function App(): JSX.Element {
     {activeSection === 'settings' && (
       <SettingsApp
         onBack={() => setActiveSection('workspace')}
-        onPresetsChange={setCustomPresets}
+        onPresetsChange={(nextPresets) => { setCustomPresets(nextPresets); markDirty(); }}
         presets={customPresets}
         gridConfig={gridConfig}
         onGridConfigChange={setGridConfig}
