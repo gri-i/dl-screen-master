@@ -216,9 +216,10 @@ function readDscScreenHeaders(bytes: Uint8Array, firstRecordStart: number, first
       rows: bytes[headerOffset + 7],
       ...firstResolution,
       headerOffset,
-      // The first compact header closes the first table; every next table
-      // starts immediately after the preceding compact header.
-      recordStart: index === 0 ? firstRecordStart : headerOffset + 17
+      // Each compact header closes the table immediately before it; the next
+      // table starts after the preceding header. The first table has no
+      // preceding compact header and starts at the detected record table.
+      recordStart: index === 0 ? firstRecordStart : headerOffsets[index - 1] + 17
     }));
   }
 

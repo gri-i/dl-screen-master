@@ -72,20 +72,25 @@ export function syntheticScreen(overrides: Partial<ExportScreen> = {}): ExportSc
   };
 }
 
-/** Synthetic DSCI fixture with two compact screen headers (two sending cards). */
-export function syntheticMultiCardDsc(): Uint8Array {
+/**
+ * Synthetic DSCI fixture derived from the local h15_v3.scr structure:
+ * DSCI magic, 17-byte 128x128 records, padding, then one compact header after
+ * each table. The real file is not copied into the repository.
+ */
+export function syntheticMultiCardDsc(cardCount = 2, options: { damagedCard?: number; emptyCard?: number } = {}): Uint8Array {
   const firstRecordStart = 32;
-  const firstRecordCount = 3;
-  const firstHeaderOffset = firstRecordStart + firstRecordCount * 17;
-  const secondRecordStart = firstHeaderOffset + 17;
-  const secondRecordCount = 2;
-  const secondHeaderOffset = secondRecordStart + secondRecordCount * 17;
-  const bytes = new Uint8Array(secondHeaderOffset + 17);
+  const recordsPerCard = 3;
+  const paddingBytes = 8;
+  const blockBytes = recordsPerCard * 17 + paddingBytes + 17;
+  const bytes = new Uint8Array(firstRecordStart + cardCount * blockBytes);
   bytes.set([0x44, 0x53, 0x43, 0x49], 0); // DSCI magic.
 
   const record = (offset: number, col: number, row: number, port: number, order: number): void => {
-    bytes[offset] = col * 128;
-    bytes[offset + 2] = row;
+    const colPixels = col * 128;
+    bytes[offset] = colPixels & 0xff;
+    bytes[offset + 1] = colPixels >> 8;
+    bytes[offset + 2] = row & 0xff;
+    bytes[offset + 3] = row >> 8;
     bytes[offset + 6] = 128;
     bytes[offset + 8] = 128;
     bytes[offset + 10] = 1;
@@ -96,15 +101,19 @@ export function syntheticMultiCardDsc(): Uint8Array {
     bytes.set([2, 1, 0, 0, 0, 0, 0, 2, 0, 2, 0, senderIndex], offset);
   };
 
-  // Synthetic fixture only: first screen has two ports and a deterministic order.
-  record(firstRecordStart, 0, 0, 0, 1);
-  record(firstRecordStart + 17, 1, 0, 0, 0);
-  record(firstRecordStart + 34, 0, 1, 1, 0);
-  header(firstHeaderOffset, 0);
+  const senderIndices = [6, 0, 1];
+  for (let card = 0; card < cardCount; card += 1) {
+    const tableStart = firstRecordStart + card * blockBytes;
+    const headerOffset = tableStart + recordsPerCard * 17 + paddingBytes;
+    const isEmpty = options.emptyCard === card;
+    const isDamaged = options.damagedCard === card;
 
-  // Synthetic fixture only: second sending card has its own screen block.
-  record(secondRecordStart, 0, 0, 0, 1);
-  record(secondRecordStart + 17, 1, 0, 0, 0);
-  header(secondHeaderOffset, 1);
+    // Synthetic fixture only: preserve physical port and cabinet order fields.
+    record(tableStart, isEmpty ? 9 : 0, 0, 0, 1);
+    record(tableStart + 17, isEmpty ? 9 : 1, 0, 0, 0);
+    record(tableStart + 34, isEmpty ? 9 : 0, 1, 1, 0);
+    if (isDamaged) bytes[tableStart + 17 + 6] = 127;
+    header(headerOffset, senderIndices[card] ?? card);
+  }
   return bytes;
 }
