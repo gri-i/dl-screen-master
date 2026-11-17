@@ -98,6 +98,10 @@ parses a whole NovaStar scene file:
 - signal paths (controller, physical outputs, cabinet order within each
   chain) are restored automatically and show up right away in the
   "Wiring" section.
+- Multi-card scenes preserve sender-card offsets, physical ports and cabinet
+  order, including tables with padding and empty records. This was confirmed
+  against the real `h15_v3.scr` in a read-only check; the file was not added
+  to the repository.
 
 The import status (how many screens, how many matched the library, how
 many new presets were created) appears under the import button.
@@ -142,6 +146,29 @@ Once a controller exists, you get:
 
 The **"Clear port"** and **"Clear all paths"** buttons reset
 assignments without removing the controller itself.
+
+### Hardware limits and unknown values
+
+Official limits come from `src/shared/hardwareLimits.ts` and are
+color-depth-specific. Known values:
+
+- **MCTRL4K** — 8,800,000 pixels aggregate.
+- **MCTRL660 Pro** — 2,304,000 pixels at 8-bit and 2,073,600 at
+  10/12-bit.
+- **MCTRL660** — 2,304,000 at 8-bit and 1,296,000 at 12-bit; the 10-bit
+  canvas is explicitly unknown.
+- **H9/H15** — per H_16 RJ45 card port: 650,000 at 8-bit and 320,000 at
+  10-bit. Maximum cards: H9 — 5, H15 Standard — 10, H15 Enhanced — 16.
+
+H9/H15 aggregate input capacity must not be reduced to one number without
+  the chassis and sending-card configuration. H15 cards 11–16 remain
+  unknown until Standard or Enhanced is selected; more than 16 cards is an
+  overload. When no official value is available, the interface shows
+  `unknown` instead of inventing an estimate.
+
+Source-backed receiver-card variants are **A10s Pro**, **A8s PWM/common**,
+**A5s Plus PWM/common**, and **A4s**. **A8s Pro** and missing driver
+variants remain `unknown`.
 
 ## 5. Wiring: power circuits
 
@@ -216,6 +243,20 @@ On the Pixel mask/Wiring toolbar:
   each screen's mask separately.
 - **"PNG with paths"** — the same, with the signal-path diagram
   overlaid (available once a screen has a controller configured).
+- **"Cabinets CSV"** — saves one `<project-name>-cabinets.csv` file. It is
+  UTF-8 with BOM and `;` separators, with one row per installed cabinet.
+  Each row includes the screen, controller, sending card, physical port,
+  chain order, pixel/mm coordinates, model and receiving card. Cabinets
+  assigned to ports are listed in signal order; unassigned cabinets are
+  appended with the `UNPATCHED` status.
+- **"Resolume XML"** — saves an **Advanced Output** XML draft with one
+  Screen per screen and one Slice per port that has assigned cabinets. At
+  least one signal route is required. After saving, put the file in
+  `Documents/Resolume Arena/Presets/Advanced Output` and assign physical
+  outputs manually: `deviceId`/`idHash` are machine-specific and are not
+  synthesized. For rotated screens, set output rotation in Resolume too.
+  Live Arena import has not been verified, and the XML format may vary by
+  Resolume version.
 - **"Export PDF"** — a project PDF report: a screen summary table and,
   for each screen, pages with its mask, signal-path diagram and
   power-circuit diagram (with port/circuit tables and overload status).
@@ -226,8 +267,33 @@ On the Pixel mask/Wiring toolbar:
 
 - **"New"** — clears the current layout and starts a new project.
 - **"Open"** / **"Save"** — work with `.dlscreen` (JSON) project files
-  through the system file dialog; the cabinet library isn't part of the
-  project file and is stored separately (in the app's profile).
+  through the system file dialog. Files are parsed from `unknown` and
+  validated before use: RU/EN errors are localized, finite values, ranges,
+  nested presets, screens, coordinates and routes are checked, and v1
+  normalization is supported. Legacy v1 projects may omit optional `signal`,
+  `processor`, `powerPlan`, `visualSettings` and `sessionPresets`; visual
+  defaults are normalized safely. The global library is authoritative and is
+  never replaced by an opened project. Identical collisions are skipped;
+  non-identical `id` or normalized brand+model conflicts are rejected before
+  state/profile mutation. Project-local `sessionPresets` are saved only when
+  referenced by a screen and survive a round trip. Rejection is limited to malformed data,
+  non-finite or out-of-range coordinates/routes, missing preset references,
+  invalid nested types and unsafe preset conflicts.
+- Project saves are atomic and clear
+  `userData/recovery/current.dlscreen-recovery.json` only after success. When
+  the project is dirty, **New** and **Open** use a save confirmation: **Save**
+  continues only after a successful write, **Don't save** only after recovery
+  cleanup succeeds, and cancel, a closed save dialog, write failure or cleanup
+  failure leaves the transition cancelled. On close/quit, main intercepts the
+  dirty BrowserWindow close, shows native **Save / Don't save / Cancel**, and
+  waits for the renderer result.
+- Recovery is debounced by 700 ms into
+  `userData/recovery/current.dlscreen-recovery.json`; the source `.dlscreen`
+  is never overwritten. Writes use temp-file-plus-rename, main serializes
+  recovery save/clear operations, and the renderer generation guard discards
+  stale autosaves after Save/New/Open. On restart, **Restore / Ignore / Cancel**
+  is offered; corrupt recovery is reported and safely removed. IO failures
+  remain visible and block destructive discard.
 - **"Clear all"** — removes every screen from the current workspace.
 
 For details on exactly what's stored in a project file and how the data

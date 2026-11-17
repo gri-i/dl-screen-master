@@ -1,13 +1,15 @@
 {
   "name": "dl-screen-master",
   "productName": "DL_SCREEN MASTER",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "DL_SCREEN MASTER — проектирование и настройка LED-экранов",
   "main": "dist/main/main.js",
   "author": "DL_SCREEN MASTER",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "test": "node scripts/run-tests.cjs",
+    "typecheck": "tsc --noEmit --pretty false",
     "preview": "electron-vite preview",
     "package": "electron-vite build && electron-builder"
   },

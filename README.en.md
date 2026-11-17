@@ -28,7 +28,8 @@ calculators.
   - one click to add a **3-phase 32A → 6×16A distro box**, split across
     phases automatically.
 - **NovaStar import** — `.srcx`/`.scr` (a whole scene, auto-matched
-  against the cabinet library) and `.rcfg`/`.rcfgx` (a single cabinet).
+  against the cabinet library; multi-card records preserve sender offsets,
+  physical ports and cabinet order) and `.rcfg`/`.rcfgx` (a single cabinet).
 - **Projection patterns** — a Pixel Pattern generator (grid, circles,
   overlap) and a Metric Pattern mode for aligning multi-projector
   installations, with a display grid, overlap settings, and PNG/PDF
@@ -37,11 +38,27 @@ calculators.
   number of power circuits for a screen; a Bandwidth Calculator for
   HDMI 1.4b–2.2 and DisplayPort 1.1–2.1 (RGB/YCbCr, color depth,
   blanking, DSC).
+- **Hardware limits** — officially backed controller and port limits are
+  depth-specific; unknown variants are shown as `unknown` instead of being
+  filled with guesses.
 - **Export** — PNG mask (combined and per-screen for multiple selected
   screens), PNG with the signal-path overlay, a project PDF report with
-  a summary table, masks and wiring diagrams.
-- **`.dlscreen` projects** — save/open through Electron IPC; the custom
-  cabinet library is stored separately from the project file.
+  a summary table, masks and wiring diagrams, a cabinet CSV schedule, and
+  a Resolume Advanced Output XML draft.
+- **Cabinet CSV schedule** — one UTF-8 CSV with BOM and `;` separators,
+  one row per cabinet, including coordinates, model, port and chain order;
+  routed cabinets are listed by port order and unrouted cabinets at the end.
+- **Resolume XML** — an Advanced Output draft with one Screen per screen and
+  one Slice per port. Signal routes are required; assign physical outputs in
+  Resolume manually, and set output rotation manually for rotated screens.
+  Live Arena import has not been verified, and the format can vary by version.
+- **`.dlscreen` projects** — save/open through Electron IPC; user cabinet
+  the global library is authoritative and is never replaced by an opened
+  project; identical presets are skipped, while incompatible `id` or
+  normalized brand+model conflicts are rejected before state/profile changes.
+  Project-local `sessionPresets` are saved only when referenced by a screen and
+  survive a round trip. Saves are atomic, dirty transitions are guarded, and
+  recovery is available after a failure.
 - **Color themes** — 8 DreamLaser Design System themes, applied
   instantly and remembered between launches.
 - **Two interface languages** — Russian and English, switchable in
@@ -97,6 +114,27 @@ npm run dev      # start in development mode
 npm run build     # production build of renderer/main
 npm run package   # build an installer (electron-builder)
 ```
+
+Project checks for development and CI:
+
+```bash
+npm test              # TypeScript tests via Node.js node:test
+npm run typecheck     # tsc --noEmit
+npm run build         # production build
+```
+
+These commands are the documented project checks. A real Electron GUI smoke
+test and IPC UI paths were not executed, so this documentation does not claim
+that they are GUI-verified.
+
+`npm run package` builds local installers into `release/` for Windows x64 and
+macOS x64/arm64. This does not mean that the current branch or `main` is a
+released installer. Version 0.2.0 corresponds to tag `v0.2.0`
+([e8451a6](https://github.com/gri-i/dl-screen-master/commit/e8451a6)); later
+changes remain in `Unreleased`.
+
+macOS builds are unsigned (`identity: null`); on first launch, use
+right-click → **Open**.
 
 ## Documentation
 

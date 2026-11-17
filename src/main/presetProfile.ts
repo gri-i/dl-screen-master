@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import type { CabinetPreset } from '../shared/types';
+import { writeJsonAtomically } from './persistence';
 
 /**
  * Пользовательская база кабинетов живёт в профиле приложения отдельно от
@@ -31,8 +32,7 @@ export async function loadPresetProfile(userDataPath: string, catalog: CabinetPr
 
   const seeded = catalog.map((preset) => ({ ...preset }));
   try {
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(seeded, null, 2)}\n`, 'utf8');
+    await writeJsonAtomically(filePath, seeded);
   } catch {
     // Профиль недоступен для записи — каталог всё равно отдаём в рендерер,
     // просто он не сохранится до следующего запуска.

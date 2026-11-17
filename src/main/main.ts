@@ -2,17 +2,152 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'node:path';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import type { CabinetPreset, Project } from '../shared/types';
+import type { Lang } from '../shared/lang';
 import { buildCabinetCatalogFile, extractPresetList } from '../shared/cabinetCatalog';
+import { unzipSync } from 'fflate';
 import { loadCabinetCatalog } from './cabinetCatalog';
 import { loadPresetProfile, presetProfilePath } from './presetProfile';
-import { unzipSync } from 'fflate';
+import { readJson, writeJsonAtomically } from './persistence';
 
 app.setName('DL_SCREEN MASTER');
-// Отладочный/тестовый хук: запуск с отдельным профилем, чтобы не трогать
-// рабочую базу кабинетов (DL_USER_DATA_DIR=/tmp/profile npm run dev).
-if (process.env.DL_USER_DATA_DIR) app.setPath('userData', process.env.DL_USER_DATA_DIR);
 
-ipcMain.handle('project:open', async (): Promise<{ filePath: string; project: Project } | null> => {
+type CloseChoice = 'save' | 'discard' | 'cancel';
+type RecoveryLoadResult =
+  | { status: 'none' }
+  | { status: 'available'; filePath?: string; project: unknown; savedAt: string }
+  | { status: 'corrupt' }
+  | { status: 'error'; message: string };
+
+let mainWindow: BrowserWindow | null = null;
+let windowDirty = false;
+let windowLang: Lang = 'ru';
+let closeFlowInProgress = false;
+let closeSaveWaiter: ((saved: boolean) => void) | null = null;
+let recoveryOperation = Promise.resolve();
+
+function recoveryPath(): string {
+  return path.join(app.getPath('userData'), 'recovery', 'current.dlscreen-recovery.json');
+}
+
+function queueRecoveryOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const next = recoveryOperation.then(operation, operation);
+  recoveryOperation = next.then(() => undefined, () => undefined);
+  return next;
+}
+
+function localizedCloseDialog(lang: Lang): { message: string; detail: string; buttons: [string, string, string] } {
+  return lang === 'en'
+    ? { message: 'Save changes to the current project?', detail: 'Unsaved changes will be lost if you do not save them.', buttons: ['Save', 'Don’t save', 'Cancel'] }
+    : { message: 'Сохранить изменения в текущем проекте?', detail: 'Несохранённые изменения будут потеряны, если их не сохранить.', buttons: ['Сохранить', 'Не сохранять', 'Отмена'] };
+}
+
+async function confirmClose(): Promise<void> {
+  const win = mainWindow;
+  if (!win || closeFlowInProgress) return;
+  closeFlowInProgress = true;
+  const copy = localizedCloseDialog(windowLang);
+  try {
+    const result = await dialog.showMessageBox(win, {
+      type: 'question',
+      buttons: copy.buttons,
+      defaultId: 0,
+      cancelId: 2,
+      message: copy.message,
+      detail: copy.detail,
+      noLink: true
+    });
+    const choice: CloseChoice = result.response === 0 ? 'save' : result.response === 1 ? 'discard' : 'cancel';
+    if (choice === 'save') {
+      const saved = await new Promise<boolean>((resolve) => {
+        closeSaveWaiter = resolve;
+        win.webContents.send('app:request-close-save');
+        setTimeout(() => {
+          if (closeSaveWaiter) {
+            closeSaveWaiter = null;
+            resolve(false);
+          }
+        }, 30_000);
+      });
+      if (!saved) return;
+    } else if (choice === 'cancel') {
+      return;
+    } else {
+      await queueRecoveryOperation(() => rm(recoveryPath(), { force: true }));
+    }
+    windowDirty = false;
+    win.destroy();
+  } finally {
+    closeFlowInProgress = false;
+  }
+}
+
+ipcMain.on('app:close-save-result', (event, saved: unknown) => {
+  if (event.sender !== mainWindow?.webContents || !closeSaveWaiter) return;
+  const resolve = closeSaveWaiter;
+  closeSaveWaiter = null;
+  resolve(saved === true);
+});
+
+ipcMain.handle('app:confirm-discard', async (_event, lang: Lang = 'ru'): Promise<CloseChoice> => {
+  const copy = localizedCloseDialog(lang === 'en' ? 'en' : 'ru');
+  const options = {
+    type: 'question', buttons: copy.buttons, defaultId: 0, cancelId: 2,
+    message: copy.message, detail: copy.detail, noLink: true
+  } as const;
+  const result = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
+  return result.response === 0 ? 'save' : result.response === 1 ? 'discard' : 'cancel';
+});
+
+ipcMain.handle('app:confirm-recovery', async (_event, lang: Lang = 'ru'): Promise<'restore' | 'ignore' | 'cancel'> => {
+  const english = lang === 'en';
+  const options = {
+    type: 'question',
+    buttons: english ? ['Restore', 'Ignore', 'Cancel'] : ['Восстановить', 'Игнорировать', 'Отмена'],
+    defaultId: 0,
+    cancelId: 2,
+    message: english ? 'Recover unsaved project changes?' : 'Восстановить несохранённые изменения проекта?',
+    detail: english ? 'A recovery copy was found after the previous session.' : 'После предыдущего запуска найдена recovery-копия проекта.',
+    noLink: true
+  } as const;
+  const result = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
+  return result.response === 0 ? 'restore' : result.response === 1 ? 'ignore' : 'cancel';
+});
+
+ipcMain.on('app:set-dirty', (_event, dirty: unknown, lang: Lang = 'ru') => {
+  windowDirty = dirty === true;
+  windowLang = lang === 'en' ? 'en' : 'ru';
+});
+
+ipcMain.handle('app:recovery-load', async (): Promise<RecoveryLoadResult> => {
+  return queueRecoveryOperation(async () => {
+    try {
+      const value = await readJson(recoveryPath());
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return { status: 'corrupt' };
+      const record = value as { project?: unknown; filePath?: unknown; savedAt?: unknown };
+      if (!record.project || typeof record.savedAt !== 'string') return { status: 'corrupt' };
+      return {
+        status: 'available' as const,
+        project: record.project,
+        filePath: typeof record.filePath === 'string' ? record.filePath : undefined,
+        savedAt: record.savedAt
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'none' as const };
+      if (error instanceof SyntaxError) return { status: 'corrupt' as const };
+      return { status: 'error' as const, message: error instanceof Error ? error.message : String(error) };
+    }
+  });
+});
+
+ipcMain.handle('app:recovery-save', async (_event, project: Project, filePath?: string): Promise<void> => {
+  await queueRecoveryOperation(() => writeJsonAtomically(recoveryPath(), { version: 1, savedAt: new Date().toISOString(), filePath, project }));
+});
+
+ipcMain.handle('app:recovery-clear', async (): Promise<void> => {
+  await queueRecoveryOperation(() => rm(recoveryPath(), { force: true }));
+});
+
+ipcMain.handle('project:open', async (): Promise<{ filePath: string; project: unknown } | null> => {
   const result = await dialog.showOpenDialog({
     title: 'Открыть проект DL_SCREEN MASTER',
     properties: ['openFile'],
@@ -20,7 +155,7 @@ ipcMain.handle('project:open', async (): Promise<{ filePath: string; project: Pr
   });
   if (result.canceled || !result.filePaths[0]) return null;
   const filePath = result.filePaths[0];
-  return { filePath, project: JSON.parse(await readFile(filePath, 'utf8')) as Project };
+  return { filePath, project: JSON.parse(await readFile(filePath, 'utf8')) as unknown };
 });
 
 ipcMain.handle('project:save', async (_event, project: Project, currentPath?: string): Promise<string | null> => {
@@ -34,7 +169,8 @@ ipcMain.handle('project:save', async (_event, project: Project, currentPath?: st
     if (result.canceled || !result.filePath) return null;
     filePath = result.filePath;
   }
-  await writeFile(filePath, `${JSON.stringify(project, null, 2)}\n`, 'utf8');
+  await writeJsonAtomically(filePath, project);
+  await queueRecoveryOperation(() => rm(recoveryPath(), { force: true }));
   return filePath;
 });
 
@@ -43,12 +179,12 @@ ipcMain.handle('presets:load', async (): Promise<CabinetPreset[]> => {
   return loadPresetProfile(app.getPath('userData'), catalog);
 });
 
-// Каталог нужен и в настройках — кнопке «Вернуть стандартные» (рендерер не
-// имеет доступа к файловой системе, поэтому читает его через main).
+// Каталог нужен и в настройках — кнопке «Вернуть стандартные»: рендерер не
+// имеет доступа к файловой системе, поэтому читает его через main.
 ipcMain.handle('presets:catalog', (): Promise<CabinetPreset[]> => loadCabinetCatalog(app.getAppPath()));
 
 ipcMain.handle('presets:save', async (_event, presets: CabinetPreset[]): Promise<void> => {
-  await writeFile(presetProfilePath(app.getPath('userData')), `${JSON.stringify(presets, null, 2)}\n`, 'utf8');
+  await writeJsonAtomically(presetProfilePath(app.getPath('userData')), presets);
 });
 
 ipcMain.handle('presets:import', async (): Promise<CabinetPreset[] | null> => {
@@ -240,6 +376,16 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false
     }
+  });
+
+  mainWindow = win;
+  win.on('close', (event) => {
+    if (!windowDirty || closeFlowInProgress) return;
+    event.preventDefault();
+    void confirmClose();
+  });
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
   });
 
   loadRenderer(win);

@@ -10,7 +10,12 @@ import type {
   SignalFormat
 } from '@shared/types';
 import { portLoad, portMaxPixels } from '@shared/capacity';
-import { checkControllerCanvas, checkReceiverCard } from '@shared/hardwareLimits';
+import {
+  checkControllerCanvas,
+  checkControllerPorts,
+  checkReceiverCard,
+  checkSendingCardCount
+} from '@shared/hardwareLimits';
 import { validateWiring, type WiringIssue } from '@shared/layoutValidation';
 import {
   DEFAULT_PATTERN_CONFIG,
@@ -2702,7 +2707,15 @@ export function TestPatternViewer({
                     port.assignedCabinets.length * pixelsPerCabinet > portMaxPixels(port, signal) ||
                     (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets)
                   ).length ?? 0;
-                  const canvasIssues = checkControllerCanvas(selectedDataScreen.processor, pixelsPerCabinet).filter((check) => !check.ok);
+                  const canvasChecks = checkControllerCanvas(selectedDataScreen.processor, pixelsPerCabinet, signal);
+                  const canvasIssues = canvasChecks.filter((check) => check.status === 'overload');
+                  const unknownCanvasChecks = canvasChecks.filter((check) => check.status === 'unknown');
+                  const portChecks = checkControllerPorts(selectedDataScreen.processor, pixelsPerCabinet, signal);
+                  const portIssues = portChecks.filter((check) => check.status === 'overload');
+                  const unknownPortChecks = portChecks.filter((check) => check.status === 'unknown');
+                  const sendingCardChecks = checkSendingCardCount(selectedDataScreen.processor);
+                  const sendingCardIssues = sendingCardChecks.filter((check) => check.status === 'overload');
+                  const unknownSendingCardChecks = sendingCardChecks.filter((check) => check.status === 'unknown');
                   const receiver = selectedDataPreset ? checkReceiverCard(selectedDataPreset, signal) : null;
                   return (
                     <>
@@ -2712,12 +2725,42 @@ export function TestPatternViewer({
                       ))}
                       {canvasIssues.map((check) => (
                         <p key={check.controller} className="data-path-summary is-warning">
-                          {t('tpv.check.controllerCanvas', { controller: check.controller, pixels: check.pixels.toLocaleString(), limit: check.limit.toLocaleString() })}
+                          {t('tpv.check.controllerCanvas', { controller: check.controller, pixels: check.pixels.toLocaleString(), limit: check.limit?.toLocaleString() ?? '—' })}
                         </p>
                       ))}
-                      {receiver && !receiver.ok && (
+                      {unknownCanvasChecks.map((check) => (
+                        <p key={`canvas-unknown-${check.controller}`} className="data-path-summary is-warning">
+                          {t('tpv.check.unknownLimit', { scope: check.controller, reason: check.reason ?? '' })}
+                        </p>
+                      ))}
+                      {portIssues.map((check) => (
+                        <p key={`port-${check.controller}-${check.port}`} className="data-path-summary is-warning">
+                          {t('tpv.check.controllerPort', { controller: check.controller, port: check.port, pixels: check.pixels.toLocaleString(), limit: check.limit?.toLocaleString() ?? '—' })}
+                        </p>
+                      ))}
+                      {unknownPortChecks.map((check) => (
+                        <p key={`port-unknown-${check.controller}-${check.port}`} className="data-path-summary is-warning">
+                          {t('tpv.check.unknownLimit', { scope: `${check.controller} / ${check.port}`, reason: check.reason ?? '' })}
+                        </p>
+                      ))}
+                      {sendingCardIssues.map((check) => (
+                        <p key={`cards-${check.controller}`} className="data-path-summary is-warning">
+                          {t('tpv.check.sendingCards', { controller: check.controller, cards: check.cards, limit: check.limit?.toLocaleString() ?? '—' })}
+                        </p>
+                      ))}
+                      {unknownSendingCardChecks.map((check) => (
+                        <p key={`cards-unknown-${check.controller}`} className="data-path-summary is-warning">
+                          {t('tpv.check.unknownLimit', { scope: check.controller, reason: check.reason ?? '' })}
+                        </p>
+                      ))}
+                      {receiver && receiver.status === 'overload' && (
                         <p className="data-path-summary is-warning">
-                          {t('tpv.check.receiverCard', { card: receiver.card, width: selectedDataPreset!.resolutionX, height: selectedDataPreset!.resolutionY, limitWidth: receiver.limitWidth, limitHeight: receiver.limitHeight })}
+                          {t('tpv.check.receiverCard', { card: receiver.card, width: selectedDataPreset!.resolutionX, height: selectedDataPreset!.resolutionY, limitWidth: receiver.limitWidth?.toLocaleString() ?? '—', limitHeight: receiver.limitHeight?.toLocaleString() ?? '—' })}
+                        </p>
+                      )}
+                      {receiver && receiver.status === 'unknown' && (
+                        <p className="data-path-summary is-warning">
+                          {t('tpv.check.unknownLimit', { scope: receiver.card, reason: receiver.reason ?? '' })}
                         </p>
                       )}
                     </>
