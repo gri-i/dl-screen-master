@@ -21,19 +21,32 @@ cabinet library to a finished project PDF report.
 
 ## 1. Cabinet library
 
-Before you start, the library needs at least one LED cabinet model.
+On first launch the library is already filled from the starter catalog — the
+`catalog/cabinet-presets.json` file next to the application. The catalog is
+not part of the repository (see `catalog/README.md`), so a build without it
+starts with an empty library and the first cabinet has to be added manually or
+by import.
+
 Open **Settings** (top-right button):
 
 - **Import RCFG / RCFGX** — adds a single cabinet from a NovaStar
   configuration file (resolution and pixel pitch are detected
   automatically).
-- **Import JSON** / **Export JSON** — move the whole cabinet library
-  between installs.
+- **Import JSON** / **Export JSON** — move the cabinet library between
+  installs. The import accepts both a bare array of presets (the old export)
+  and a catalog object with a `presets` field — the same
+  `catalog/cabinet-presets.json` the app seeds on first launch. The export
+  writes the catalog format, so the file can be dropped into `catalog/`.
+- **Restore built-in** — adds catalog models missing from the library.
+  Matching is by brand and model, so edited and manually added cabinets are
+  neither duplicated nor overwritten. If there is no catalog, the button says
+  so.
 - **Add cabinet** — manually enter brand, model, pixel pitch,
   resolution, dimensions, weight and power (max/average).
 
 Any model can be edited or deleted right in the library list. Changes
-show up in the main window immediately.
+show up in the main window immediately. Deleted starter models do not come
+back by themselves — only via “Restore built-in”.
 
 The same settings section also has:
 

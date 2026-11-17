@@ -163,6 +163,44 @@ export function SettingsApp({
     }
   }
 
+  /**
+   * Возвращает в базу стандартные модели из каталога приложения
+   * (catalog/cabinet-presets.json), которых в ней нет. Уже заведённые
+   * (в т.ч. отредактированные вручную) не трогаем: совпадение определяется по
+   * бренду+модели, поэтому правки пользователя и повторное нажатие кнопки
+   * не создают дублей и не затирают введённые вес/мощность.
+   *
+   * Каталог читается через main-процесс: рендерер не имеет доступа к файлам,
+   * а каталог намеренно не является частью кода приложения.
+   */
+  async function restoreBuiltInPresets(): Promise<void> {
+    let catalog: CabinetPreset[];
+    try {
+      catalog = await window.presetFiles.catalog();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : t('settings.library.restoreError'));
+      return;
+    }
+    if (catalog.length === 0) {
+      setStatus(t('settings.library.catalogMissing'));
+      return;
+    }
+    let next: CabinetPreset[];
+    try {
+      next = mergeUniquePresets(presets, catalog, { skipDuplicates: true, lang });
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : t('settings.library.restoreError'));
+      return;
+    }
+    const added = next.length - presets.length;
+    if (added === 0) {
+      setStatus(t('settings.library.restoredNone'));
+      return;
+    }
+    persist(next);
+    setStatus(t('settings.library.restored', { count: added }));
+  }
+
   return (
     <main className="settings-app">
       <header className="settings-header">
@@ -237,6 +275,7 @@ export function SettingsApp({
           <button type="button" onClick={() => void importRcfgFile()}>{t('settings.library.importRcfg')}</button>
           <button type="button" onClick={() => void importPresetFile()}>{t('settings.library.importJson')}</button>
           <button type="button" onClick={() => void exportPresetFile()} disabled={presets.length === 0}>{t('settings.library.exportJson')}</button>
+          <button type="button" onClick={() => void restoreBuiltInPresets()}>{t('settings.library.restoreBuiltIn')}</button>
           <button type="button" className="danger-button" onClick={() => {
             if (presets.length === 0 || window.confirm(t('settings.library.clearConfirm'))) {
               persist([]);
@@ -245,6 +284,7 @@ export function SettingsApp({
           }} disabled={presets.length === 0}>{t('settings.library.clear')}</button>
           {status && <span role="status">{status}</span>}
         </div>
+        <p className="field-hint">{t('settings.library.builtinHint')}</p>
         {presets.length > 0 && (
           <div className="preset-list">
             {presets.map((preset) => (

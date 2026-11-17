@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('projectFiles', {
 
 contextBridge.exposeInMainWorld('presetFiles', {
   load: (): Promise<CabinetPreset[]> => ipcRenderer.invoke('presets:load'),
+  catalog: (): Promise<CabinetPreset[]> => ipcRenderer.invoke('presets:catalog'),
   save: (presets: CabinetPreset[]): Promise<void> => ipcRenderer.invoke('presets:save', presets),
   import: (): Promise<CabinetPreset[] | null> => ipcRenderer.invoke('presets:import'),
   importRcfg: (): Promise<CabinetPreset | null> => ipcRenderer.invoke('presets:import-rcfg'),

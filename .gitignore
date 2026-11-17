@@ -17,12 +17,17 @@ yarn-error.log*
 *.pem
 *.key
 
+# Local cabinet catalog data (каталог моделей не публикуется в репозитории)
+catalog/*.json
+
 # Local reference material and editor state
 ref/
 .vscode/
 .idea/
 .codex/
 .agents/
+.claude/
+.alma/
 
 # Operating-system files
 .DS_Store

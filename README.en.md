@@ -46,6 +46,28 @@ calculators.
   instantly and remembered between launches.
 - **Two interface languages** — Russian and English, switchable in
   settings, applied instantly and remembered between launches.
+- **Starter cabinet library** — models from a local catalog are added on
+  first launch, so a screen can be assembled right away; deleted or edited
+  ones come back with “Restore built-in” in settings (no duplicates by brand
+  and model).
+
+## Cabinet catalog
+
+The starter model catalog is not code but a separate file,
+`catalog/cabinet-presets.json`. It is **not stored in the repository** (the
+`catalog/*.json` pattern in `.gitignore`), so the model data stays local and
+is not pushed to GitHub. The format and lookup order are described in
+[catalog/README.md](catalog/README.md).
+
+- The app looks for the catalog at `$DL_CABINET_CATALOG`, then at
+  `<app root>/catalog/cabinet-presets.json`.
+- Without the file the app still works: the library is simply empty, cabinets
+  are added manually or by importing RCFG/`.srcx`, and “Restore built-in”
+  reports that no catalog was found.
+- The catalog stays local: it is not part of `build.files`, so installers (and
+  GitHub Actions releases) ship with an empty cabinet library. It is only
+  seeded when running from source — handy for keeping a working set of models
+  to yourself without publishing it.
 
 ## Screenshots
 
@@ -94,6 +116,8 @@ src/
     i18n/          — interface translations (ru/en) and the language context
   shared/          — shared code: data types and calculation logic
                      (depends on neither Electron nor React)
+catalog/
+  README.md         — starter catalog format (the JSON itself is not committed)
 docs/
   screenshots/      — images for the README
   USAGE.md          — user guide (Russian)

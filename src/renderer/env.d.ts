@@ -8,6 +8,7 @@ declare global {
     };
     presetFiles: {
       load(): Promise<CabinetPreset[]>;
+      catalog(): Promise<CabinetPreset[]>;
       save(presets: CabinetPreset[]): Promise<void>;
       import(): Promise<CabinetPreset[] | null>;
       importRcfg(): Promise<CabinetPreset | null>;
