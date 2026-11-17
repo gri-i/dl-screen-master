@@ -36,6 +36,6 @@ jobs:
         with:
           path: dist-release
           merge-multiple: true
-      - run: gh release create "$GITHUB_REF_NAME" dist-release/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --latest=false
+      - run: gh release create "$GITHUB_REF_NAME" dist-release/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
