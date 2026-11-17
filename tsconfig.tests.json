@@ -5,10 +5,17 @@
     "moduleResolution": "Node",
     "outDir": ".test-dist",
     "rootDir": ".",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "sourceMap": false,
     "declaration": false,
     "noEmit": false
   },
-  "include": ["tests/**/*.ts"]
+  "include": [
+    "tests/**/*.ts"
+  ],
+  "files": [
+    "src/renderer/env.d.ts"
+  ]
 }

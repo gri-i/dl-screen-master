@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { OverlayPosition } from '@shared/types';
 import { useLanguage } from '../i18n/context';
+import { isDesktop } from '../platform';
 
 type PatternMode = 'pixel' | 'metric';
 type MetricOrigin = 'top-left' | 'top-right' | 'center' | 'bottom-left' | 'bottom-right';
@@ -748,7 +749,9 @@ export function ProjectionMaskSection(): JSX.Element {
             Сбросить
           </button>
           <button className="primary-button" type="button" onClick={() => void exportPattern()}>Скачать PNG</button>
-          <button type="button" disabled={isExportingPdf} onClick={() => void exportPdf()}>Экспорт PDF</button>
+          {isDesktop() && (
+            <button type="button" disabled={isExportingPdf} onClick={() => void exportPdf()}>Экспорт PDF</button>
+          )}
         </div>
       </header>
       {exportStatus && <p role="status">{exportStatus}</p>}

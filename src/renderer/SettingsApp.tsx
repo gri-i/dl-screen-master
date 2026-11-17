@@ -3,6 +3,7 @@ import type { CabinetPreset, PowerGridConfig, UiSkin } from '@shared/types';
 import type { Lang } from '@shared/lang';
 import { mergeUniquePresets, validatePreset } from '@shared/presetValidation';
 import { useLanguage } from './i18n/context';
+import { isDesktop } from './platform';
 import './styles.css';
 
 const INITIAL_FORM = {
@@ -272,9 +273,13 @@ export function SettingsApp({
         <h1>{t('settings.library.title')}</h1>
         <p className="field-hint">{t('settings.library.hint', { count: presets.length })}</p>
         <div className="preset-file-actions">
-          <button type="button" onClick={() => void importRcfgFile()}>{t('settings.library.importRcfg')}</button>
-          <button type="button" onClick={() => void importPresetFile()}>{t('settings.library.importJson')}</button>
-          <button type="button" onClick={() => void exportPresetFile()} disabled={presets.length === 0}>{t('settings.library.exportJson')}</button>
+          {isDesktop() && (
+            <>
+              <button type="button" onClick={() => void importRcfgFile()}>{t('settings.library.importRcfg')}</button>
+              <button type="button" onClick={() => void importPresetFile()}>{t('settings.library.importJson')}</button>
+              <button type="button" onClick={() => void exportPresetFile()} disabled={presets.length === 0}>{t('settings.library.exportJson')}</button>
+            </>
+          )}
           <button type="button" onClick={() => void restoreBuiltInPresets()}>{t('settings.library.restoreBuiltIn')}</button>
           <button type="button" className="danger-button" onClick={() => {
             if (presets.length === 0 || window.confirm(t('settings.library.clearConfirm'))) {

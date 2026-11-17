@@ -10,6 +10,7 @@ import { mergeUniquePresets } from '@shared/presetValidation';
 import { buildProjectSnapshot, finishDestructiveTransition, mergePresetsPreservingExisting } from '@shared/projectPersistence';
 import { parseProject, ProjectValidationError } from '@shared/projectValidation';
 import { useLanguage } from './i18n/context';
+import { isDesktop } from './platform';
 import './styles.css';
 
 const CUSTOM_PRESETS_KEY = 'wall-config-custom-presets';
@@ -328,8 +329,12 @@ export function App(): JSX.Element {
         <div className="brand">DL_SCREEN MASTER</div>
         <div className="project-toolbar">
           <button type="button" onClick={newProject}>{t('app.new')}</button>
-          <button type="button" onClick={() => void openProject()}>{t('app.open')}</button>
-          <button type="button" onClick={() => void saveProject()}>{t('app.save')}</button>
+          {isDesktop() && (
+            <>
+              <button type="button" onClick={() => void openProject()}>{t('app.open')}</button>
+              <button type="button" onClick={() => void saveProject()}>{t('app.save')}</button>
+            </>
+          )}
           <input
             aria-label={t('app.projectNameLabel')}
             value={projectName}
@@ -426,7 +431,7 @@ export function App(): JSX.Element {
               <section className="empty-preset-state">
                 <div>
                   <h1>{t('app.emptyPresets.title')}</h1>
-                  <p>{t('app.emptyPresets.body')}</p>
+                  <p>{t(isDesktop() ? 'app.emptyPresets.body' : 'app.emptyPresets.bodyWeb')}</p>
                   <button type="button" onClick={() => setActiveSection('settings')}>{t('app.emptyPresets.openSettings')}</button>
                 </div>
               </section>

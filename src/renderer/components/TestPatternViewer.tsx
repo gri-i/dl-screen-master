@@ -25,6 +25,7 @@ import {
 } from '@shared/patterns';
 import type { ScreenConfig } from './PowerCalculator';
 import { importNovaStarProject } from '../novastarImport';
+import { isDesktop } from '../platform';
 import { PowerPathPlanner } from './PowerPathPlanner';
 import { buildResolumeXml } from '../resolumeExport';
 import { buildCabinetScheduleCsv, buildReportHtml, type ExportScreen } from '../projectExport';
@@ -2188,10 +2189,12 @@ export function TestPatternViewer({
           <span>{widthPx} × {heightPx} px · {(widthMm / 1000).toFixed(2)} × {(heightMm / 1000).toFixed(2)} м</span>
         </div>
         <div className="zoom-controls" aria-label="Масштаб холста" data-history-revision={historyRevision}>
-          <label className="import-srcx-button">
-            Импорт .srcx/.scr
-            <input type="file" accept=".srcx,.scr" onChange={handleNovaStarImport} />
-          </label>
+          {isDesktop() && (
+            <label className="import-srcx-button">
+              Импорт .srcx/.scr
+              <input type="file" accept=".srcx,.scr" onChange={handleNovaStarImport} />
+            </label>
+          )}
           <button
             type="button"
             onClick={() => setWorkspaceZoom((current) => clampZoom(current - ZOOM_STEP))}
@@ -2223,9 +2226,11 @@ export function TestPatternViewer({
           <button type="button" disabled={!selectedDataScreen?.processor} onClick={() => void exportMask(true)} title="Экспортировать маску с сигнальным путём в PNG">
             PNG с путями
           </button>
-          <button type="button" disabled={placedScreens.length === 0} onClick={() => void exportProjectPdf()} title="Экспортировать PDF-отчёт по проекту">
-            Экспорт PDF
-          </button>
+          {isDesktop() && (
+            <button type="button" disabled={placedScreens.length === 0} onClick={() => void exportProjectPdf()} title="Экспортировать PDF-отчёт по проекту">
+              Экспорт PDF
+            </button>
+          )}
           <button type="button" disabled={placedScreens.length === 0} onClick={() => void exportCabinetSchedule()} title={t('tpv.exportCsvTitle')}>
             {t('tpv.exportCsvLabel')}
           </button>
