@@ -10,6 +10,7 @@ import type {
   SignalFormat
 } from '@shared/types';
 import { portLoad, portMaxPixels } from '@shared/capacity';
+import { powerPlanLoads } from '@shared/calculations';
 import {
   checkControllerCanvas,
   checkControllerPorts,
@@ -2145,6 +2146,20 @@ export function TestPatternViewer({
   const selectedDataPreset = selectedDataScreen
     ? presets.find((item) => item.id === selectedDataScreen.screenConfig.presetId) ?? presets[0]
     : null;
+  // Правый сайдбар: потребление текущей раскладки и нагрузки по фазам, если силовые пути уже разведены
+  const detailCabinets = Math.max(0, cols * rows - (screenConfig.emptyCabinetKeys || []).length);
+  const detailPeakKw = (detailCabinets * preset.maxPowerW) / 1000;
+  const detailAvgKw = (detailCabinets * preset.avgPowerW) / 1000;
+  const selectedPlanLoads = selectedDataScreen && selectedDataPreset
+    ? powerPlanLoads(selectedDataScreen.powerPlan, selectedDataPreset)
+    : null;
+  // Предупреждение «фазы загружены неравномерно»: пустая фаза или перекос > 10 %
+  const unusedPhases = selectedPlanLoads
+    ? selectedPlanLoads.loads.filter((load) => load.cabinets === 0).map((load) => load.phase)
+    : [];
+  const phaseWarning = !!selectedPlanLoads && selectedPlanLoads.phases === 3
+    && (unusedPhases.length > 0 || selectedPlanLoads.imbalancePercent > 10);
+
   const autoRoutingOrder = useMemo(() => selectedDataScreen
     ? generateCabinetOrder(
         selectedDataScreen.screenConfig,
@@ -2839,11 +2854,42 @@ export function TestPatternViewer({
           )}
 
           <div className="screen-details">
-            <div><b>Разрешение:</b> {widthPx} × {heightPx} px</div>
-            <div><b>Физический размер:</b> {(widthMm / 1000).toFixed(2)} × {(heightMm / 1000).toFixed(2)} м</div>
-            <div><b>Шаг пикселя:</b> {preset.pixelPitchMm} мм</div>
-            <div><b>Раскладка:</b> {cols} × {rows} кабинетов</div>
+            <div><b>{t('tpv.details.resolution')}</b> {widthPx} × {heightPx} px</div>
+            <div><b>{t('tpv.details.physicalSize')}</b> {(widthMm / 1000).toFixed(2)} × {(heightMm / 1000).toFixed(2)} м</div>
+            <div><b>{t('tpv.details.pixelPitch')}</b> {preset.pixelPitchMm} мм</div>
+            <div><b>{t('tpv.details.layout')}</b> {cols} × {rows}{t('tpv.details.layoutCabinetsSuffix')}</div>
+            <div><b>{t('tpv.details.power')}</b> {t('tpv.details.powerValue', {
+              max: detailPeakKw.toFixed(2), avg: detailAvgKw.toFixed(2) })}</div>
+            <div className="is-hint">{t('tpv.details.cabinetsValue', {
+              count: detailCabinets, max: preset.maxPowerW, avg: preset.avgPowerW })}</div>
           </div>
+          {selectedPlanLoads && (
+            <div className="screen-details screen-details-phases">
+              <div><b>{t('tpv.details.phaseLoads')}</b>{' '}
+                <span className="is-hint">{t('tpv.details.phaseRouted', {
+                  assigned: selectedPlanLoads.assignedCabinets, total: detailCabinets })}</span>
+              </div>
+              <div className="phase-load-rows">
+                {selectedPlanLoads.loads.map((load) => (
+                  <div className="phase-load-row" key={load.phase}>
+                    <span className="phase-load-name">{load.phase}</span>
+                    <span>{(load.maxPowerW / 1000).toFixed(2)} кВт</span>
+                    <span>{load.amps.toFixed(1)} А</span>
+                    <span className="is-hint">{load.cabinets} каб.</span>
+                  </div>
+                ))}
+              </div>
+              {selectedPlanLoads.phases === 3 && (
+                <div className="is-hint">{t('tpv.details.phaseImbalance', { percent: selectedPlanLoads.imbalancePercent })}</div>
+              )}
+              {phaseWarning && (
+                <div className="phase-warning">
+                  {t('tpv.details.phaseUneven')}
+                  {unusedPhases.length > 0 && ` · ${unusedPhases.map((phase) => t('tpv.details.phaseUnused', { phase })).join(', ')}`}
+                </div>
+              )}
+            </div>
+          )}
 
         </aside>
 

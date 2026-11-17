@@ -5,9 +5,10 @@ import { SettingsApp } from './SettingsApp';
 import { ProjectionMaskSection } from './sections/ProjectionMaskSection';
 import { BandwidthCalculator } from './components/BandwidthCalculator';
 import { parseMasksLink } from './masksLink';
-import { readBoundScreen, writeBoundScreen } from './masksBinding';
+import { readBoundScreen, writeBoundPower, writeBoundScreen } from './masksBinding';
 import type { CabinetPreset, PowerGridConfig, Project, ScreenInstance, SignalFormat, UiSkin } from '@shared/types';
 import { DEFAULT_SIGNAL } from '@shared/capacity';
+import { screenPowerSummary } from '@shared/calculations';
 import { mergeUniquePresets } from '@shared/presetValidation';
 import { buildProjectSnapshot, finishDestructiveTransition, mergePresetsPreservingExisting } from '@shared/projectPersistence';
 import { parseProject, ProjectValidationError } from '@shared/projectValidation';
@@ -378,9 +379,22 @@ export function App(): JSX.Element {
     if (!masksLink || !profileReady) return;
     const screen = projectScreens.find((item) => item.id === masksLink.wall);
     if (!screen) return;
-    const timer = setTimeout(() => writeBoundScreen(masksLink.wall, screen), 300);
+    const timer = setTimeout(() => {
+      writeBoundScreen(masksLink.wall, screen);
+      // Сводка по силовым путям для дизайна: потребление и реальные фазы.
+      // Дизайн читает её по id стены (см. masksBinding), иначе он показывал бы
+      // своё «ровное» распределение по фазам вместо фактического расключения.
+      const preset = presets.find((item) => item.id === screen.presetId);
+      if (preset) {
+        const cabinets = Math.max(0, screen.cols * screen.rows - (screen.emptyCabinetKeys?.length ?? 0));
+        writeBoundPower(masksLink.wall, {
+          ...screenPowerSummary(screen.powerPlan, preset, cabinets),
+          updatedAt: new Date().toISOString()
+        });
+      }
+    }, 300);
     return () => clearTimeout(timer);
-  }, [projectScreens, masksLink, profileReady]);
+  }, [projectScreens, masksLink, profileReady, presets]);
 
   useEffect(() => {
     window.appLifecycle.setDirty(dirty, lang);

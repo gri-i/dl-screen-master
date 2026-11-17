@@ -102,6 +102,13 @@ export function PowerPathPlanner({
   const phaseAmps = PHASES.map((phase) => value.circuits
     .filter((circuit) => circuit.phase === phase)
     .reduce((sum, circuit) => sum + circuit.assignedCabinets.length * cabinetAmps, 0));
+  // Неравномерность: пустая фаза или разброс больше 10 % от средней — предупреждаем
+  const unusedPhases = PHASES.filter((phase, index) => phaseAmps[index] === 0);
+  const phaseMean = phaseAmps.reduce((sum, amps) => sum + amps, 0) / PHASES.length;
+  const phaseImbalancePercent = value.phases === 3 && phaseMean > 0
+    ? Math.round(((Math.max(...phaseAmps) - Math.min(...phaseAmps)) / phaseMean) * 1000) / 10
+    : 0;
+  const phaseUneven = value.phases === 3 && (unusedPhases.length > 0 || phaseImbalancePercent > 10);
 
   return (
     <fieldset className="power-path-panel">
@@ -129,7 +136,15 @@ export function PowerPathPlanner({
         </button>
       )}
       {isEditing && <p className="field-hint">{t('pp.editingHint')}</p>}
-      {value.phases === 3 && <div className="phase-loads">{PHASES.map((phase, index) => <span key={phase}>{phase}: {phaseAmps[index].toFixed(1)} А</span>)}</div>}
+      {value.phases === 3 && <div className={'phase-loads' + (phaseUneven ? ' is-uneven' : '')}>{PHASES.map((phase, index) => <span key={phase}>{phase}: {phaseAmps[index].toFixed(1)} А</span>)}</div>}
+      {phaseUneven && (
+        <p className="field-hint is-warning">
+          {t('pp.phaseUneven', {
+            unused: unusedPhases.length ? t('pp.phaseUnusedPart', { phases: unusedPhases.join(', ') }) : '',
+            percent: phaseImbalancePercent
+          })}
+        </p>
+      )}
       <div className="power-circuit-list">
         {value.circuits.map((circuit, index) => {
           const { watts, percent: load, status } = circuitLoad(circuit.assignedCabinets.length, preset.maxPowerW, usablePowerW);

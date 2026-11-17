@@ -27,8 +27,10 @@ export const powerPathDict: Record<Lang, Dict> = {
     'pp.circuitStats': '{count} из {max} каб. · ещё {remaining}',
     'pp.circuitKw': '{used} из {total} кВт',
     'pp.circuitAmps': '{amps} А · лимит порта {limit} кВт',
-    'pp.summary': 'Назначено {assigned} из {total} кабинетов{overloadPart} · допустимо {usableKw} кВт на порт (не более 3 кВт){cabinetLimitPart}',
+    'pp.summary': 'Назначено {assigned} из {total} кабинетов{overloadPart} · допустимо {usableKw} кВт на порт (не более 3,5 кВт){cabinetLimitPart}',
     'pp.summaryOverloadPart': ' · перегружено портов: {count}',
+    'pp.phaseUneven': '⚠ фазы загружены неравномерно{unused} · перекос {percent}%',
+    'pp.phaseUnusedPart': ' ({phases} не используется)',
     'pp.summaryCabinetLimitPart': ' · до {count} кабинетов на порт'
   },
   en: {
@@ -57,8 +59,10 @@ export const powerPathDict: Record<Lang, Dict> = {
     'pp.circuitStats': '{count} of {max} cab. · {remaining} left',
     'pp.circuitKw': '{used} of {total} kW',
     'pp.circuitAmps': '{amps} A · port limit {limit} kW',
-    'pp.summary': 'Assigned {assigned} of {total} cabinets{overloadPart} · allowed {usableKw} kW per port (max 3 kW){cabinetLimitPart}',
+    'pp.summary': 'Assigned {assigned} of {total} cabinets{overloadPart} · allowed {usableKw} kW per port (max 3.5 kW){cabinetLimitPart}',
     'pp.summaryOverloadPart': ' · overloaded circuits: {count}',
+    'pp.phaseUneven': '⚠ phases loaded unevenly{unused} · imbalance {percent}%',
+    'pp.phaseUnusedPart': ' ({phases} unused)',
     'pp.summaryCabinetLimitPart': ' · up to {count} cabinets per port'
   }
 };

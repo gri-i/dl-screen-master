@@ -115,3 +115,80 @@ export async function renderThumbnail(source: string, maxWidth = 320): Promise<s
     return null;
   }
 }
+
+// ── Сводка по силовым путям для дизайна (17.11.2026) ────────────────────────
+// Дизайн показывает у LED-стены потребление и нагрузки по фазам. Сам он знает
+// только модель кабинета и сетку, а фактические цепи/фазы живут в масках
+// (PowerPathPlanner). Поэтому маски публикуют компактную сводку по тому же id
+// стены — дизайн её читает и не выдумывает распределение по фазам.
+const POWER_PREFIX = 'dl-screen-master-masks-power:';
+const POWER_VERSION = 1;
+
+export interface BoundPowerLoad {
+  phase: 'L1' | 'L2' | 'L3';
+  cabinets: number;
+  maxPowerW: number;
+  avgPowerW: number;
+  amps: number;
+}
+
+export interface BoundPowerSummary {
+  /** однофазный/трёхфазный план питания */
+  phases: 1 | 3;
+  voltage: number;
+  breakerAmps: number;
+  safetyMarginPercent: number;
+  powerFactor: number;
+  /** кабинетов в экране и сколько из них разведено по цепям */
+  cabinets: number;
+  assigned: number;
+  /** пик и среднее по всему экрану */
+  maxPowerW: number;
+  avgPowerW: number;
+  loads: BoundPowerLoad[];
+  imbalancePercent: number;
+  updatedAt: string;
+}
+
+export function boundPowerStorageKey(wallId: string): string {
+  return POWER_PREFIX + wallId;
+}
+
+function isPowerSummary(value: unknown): value is BoundPowerSummary {
+  if (!value || typeof value !== 'object') return false;
+  const summary = value as Partial<BoundPowerSummary>;
+  const finite = (number: unknown): boolean => typeof number === 'number' && Number.isFinite(number);
+  return (summary.phases === 1 || summary.phases === 3)
+    && finite(summary.voltage) && finite(summary.cabinets) && finite(summary.assigned)
+    && finite(summary.maxPowerW) && finite(summary.avgPowerW) && finite(summary.imbalancePercent)
+    && Array.isArray(summary.loads) && summary.loads.every((load) => !!load
+      && (load.phase === 'L1' || load.phase === 'L2' || load.phase === 'L3')
+      && finite(load.cabinets) && finite(load.maxPowerW) && finite(load.amps));
+}
+
+export function readBoundPower(wallId: string, storage: Storage = window.localStorage): BoundPowerSummary | null {
+  try {
+    const raw = storage.getItem(boundPowerStorageKey(wallId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { version?: number; summary?: unknown } | null;
+    return parsed && parsed.version === POWER_VERSION && isPowerSummary(parsed.summary) ? parsed.summary : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeBoundPower(wallId: string, summary: BoundPowerSummary, storage: Storage = window.localStorage): void {
+  try {
+    storage.setItem(boundPowerStorageKey(wallId), JSON.stringify({ version: POWER_VERSION, summary }));
+  } catch {
+    // Хранилище недоступно — сводка не критична, дизайн покажет «нет данных».
+  }
+}
+
+export function clearBoundPower(wallId: string, storage: Storage = window.localStorage): void {
+  try {
+    storage.removeItem(boundPowerStorageKey(wallId));
+  } catch {
+    // ignore
+  }
+}

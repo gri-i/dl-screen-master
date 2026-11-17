@@ -91,6 +91,25 @@ npm run preview:web   # локальный предпросмотр на http://
 или `MASKS_DIST/catalog/cabinet-presets.json`. Без каталога дизайн откатывается
 на заметки `dl/LED_Screens`.
 
+### Сводка по силовым путям (для панели LED-стены)
+
+Как только в масках разведены силовые пути, приложение публикует по id стены
+сводку в `localStorage` — ключ `dl-screen-master-masks-power:<wall>`:
+
+```json
+{ "version": 1, "summary": {
+  "phases": 3, "voltage": 230, "breakerAmps": 16, "safetyMarginPercent": 20, "powerFactor": 0.95,
+  "cabinets": 32, "assigned": 32, "maxPowerW": 8000, "avgPowerW": 3200,
+  "loads": [{ "phase": "L1", "cabinets": 16, "maxPowerW": 4000, "avgPowerW": 1600, "amps": 18.3 }],
+  "imbalancePercent": 150, "updatedAt": "2026-11-17T14:19:29Z" } }
+```
+
+Дизайн читает её в панели LED-стены: показывает фактические кВт и ток по фазам,
+сколько кабинетов разведено, и предупреждает, если фаза не используется или
+перекос больше 10 % (`readMasksPower`/`masksPowerUneven` в
+`design-app/src/masks.js`). Без сводки дизайн показывает только своё
+«ровное» распределение с пометкой «расчёт».
+
 ## Ограничения
 
 - Данные хранятся в браузере конкретного пользователя: между менеджерами и

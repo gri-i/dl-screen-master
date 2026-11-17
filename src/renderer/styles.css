@@ -397,6 +397,11 @@ button:hover { border-color: var(--accent); color: #fff; }
 .power-path-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .phase-loads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .phase-loads span { padding: 5px; color: #bfdbfe; border: 1px solid var(--line); border-radius: 4px; background: #172033; font-size: 10px; text-align: center; }
+/* фазы загружены неравномерно — та же сетка, но с предупреждающей рамкой */
+.phase-loads.is-uneven span { border-color: var(--warn); color: var(--warn); }
+/* предупреждение в правом сайдбаре под нагрузками по фазам */
+.screen-details-phases .phase-warning { margin-top: 4px; padding: 4px 6px; border: 1px solid var(--warn); border-radius: 4px;
+  color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); font-size: 10.5px; line-height: 1.4; }
 .power-circuit-list { display: grid; gap: 4px; }
 .power-circuit-list button.power-circuit { display: grid; gap: 5px; padding: 7px 9px; border-left: 0; text-align: left; --status-color: var(--circuit-color); }
 .power-circuit-list button.power-circuit.is-tight { --status-color: var(--warn); }
@@ -458,6 +463,15 @@ button:hover { border-color: var(--accent); color: #fff; }
 .preset-form-actions button:first-child { color: var(--on-accent); font-weight: 700; border-color: var(--accent); background: var(--accent); }
 .screen-details { padding: 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; line-height: 1.7; background: var(--panel); }
 .screen-details b { color: var(--fg); }
+.screen-details + .screen-details { margin-top: 8px; }
+/* нагрузки по фазам: та же карточка, но строки — сеткой (фаза · кВт · А · кабинеты) */
+.screen-details-phases .phase-load-rows { display: grid; gap: 3px; margin: 5px 0 3px; }
+.screen-details-phases .phase-load-row { display: grid; grid-template-columns: 24px 1fr 1fr auto; gap: 6px; align-items: baseline;
+  padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel2); font-size: 11px; }
+.screen-details-phases .phase-load-row span:nth-child(2),
+.screen-details-phases .phase-load-row span:nth-child(3) { text-align: right; }
+.screen-details-phases .phase-load-name { color: #bfdbfe; font-weight: 700; }
+.screen-details .is-hint { color: var(--muted); font-size: 10.5px; line-height: 1.4; }
 
 @media (max-width: 1250px) {
   body { min-width: 0; }

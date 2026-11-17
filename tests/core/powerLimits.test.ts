@@ -3,9 +3,9 @@ import { describe, it } from 'node:test';
 import { circuitLoad, routeColor, routeHue, usablePowerPerPortW } from '../../src/shared/powerLimits';
 
 describe('power limits', () => {
-  it('applies breaker, safety margin, power factor, and the 3 kW port cap', () => {
+  it('applies breaker, safety margin, power factor, and the 3.5 kW port cap', () => {
     assert.ok(Math.abs(usablePowerPerPortW(230, 16, 20, 0.95) - 2796.8) < 0.001);
-    assert.equal(usablePowerPerPortW(400, 32, 0, 1), 3000);
+    assert.equal(usablePowerPerPortW(400, 32, 0, 1), 3500);
     assert.equal(usablePowerPerPortW(230, 16, 120, 0.95), 0);
   });
 

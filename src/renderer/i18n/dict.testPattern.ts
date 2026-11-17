@@ -181,6 +181,15 @@ export const testPatternDict: Record<Lang, Dict> = {
     'tpv.details.pixelPitch': 'Шаг пикселя:',
     'tpv.details.layout': 'Раскладка:',
     'tpv.details.layoutCabinetsSuffix': ' кабинетов',
+    // Правый сайдбар: потребление и нагрузки по фазам (после расключения силовых путей)
+    'tpv.details.power': 'Потребление:',
+    'tpv.details.powerValue': '{max} кВт пик · {avg} кВт сред.',
+    'tpv.details.cabinetsValue': '{count} каб. · по {max} / {avg} Вт',
+    'tpv.details.phaseLoads': 'Нагрузки по фазам:',
+    'tpv.details.phaseRouted': 'разведено {assigned} из {total} кабинетов',
+    'tpv.details.phaseImbalance': 'перекос {percent}%',
+    'tpv.details.phaseUneven': '⚠ распределение по фазам неравномерное',
+    'tpv.details.phaseUnused': 'фаза {phase} не используется',
 
     // Canvas
     'tpv.selectScreenAriaLabel': 'Выбрать {name}',
@@ -378,6 +387,15 @@ export const testPatternDict: Record<Lang, Dict> = {
     'tpv.details.pixelPitch': 'Pixel pitch:',
     'tpv.details.layout': 'Layout:',
     'tpv.details.layoutCabinetsSuffix': ' cabinets',
+    // Right sidebar: power consumption and per-phase loads (after power routing)
+    'tpv.details.power': 'Power:',
+    'tpv.details.powerValue': '{max} kW peak · {avg} kW avg',
+    'tpv.details.cabinetsValue': '{count} cabinets · {max} / {avg} W each',
+    'tpv.details.phaseLoads': 'Loads per phase:',
+    'tpv.details.phaseRouted': '{assigned} of {total} cabinets routed',
+    'tpv.details.phaseImbalance': 'imbalance {percent}%',
+    'tpv.details.phaseUneven': '⚠ uneven distribution across phases',
+    'tpv.details.phaseUnused': 'phase {phase} is not used',
 
     'tpv.selectScreenAriaLabel': 'Select {name}',
     'tpv.powerPath.overloadedTitle': '{name}: exceeds the power limit for the port',
