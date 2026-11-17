@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { PowerCalculator, type ScreenConfig } from './components/PowerCalculator';
-import { TestPatternViewer, type ScreenHeaderSummary } from './components/TestPatternViewer';
+import { TestPatternViewer, createDefaultVisualSettings, type ScreenHeaderSummary } from './components/TestPatternViewer';
 import { SettingsApp } from './SettingsApp';
 import { ProjectionMaskSection } from './sections/ProjectionMaskSection';
 import { BandwidthCalculator } from './components/BandwidthCalculator';
+import { parseMasksLink } from './masksLink';
+import { readBoundScreen, writeBoundScreen } from './masksBinding';
 import type { CabinetPreset, PowerGridConfig, Project, ScreenInstance, SignalFormat, UiSkin } from '@shared/types';
 import { DEFAULT_SIGNAL } from '@shared/capacity';
 import { mergeUniquePresets } from '@shared/presetValidation';
@@ -71,6 +73,9 @@ export function App(): JSX.Element {
   const [profileReady, setProfileReady] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [uiSkin, setUiSkin] = useState<UiSkin>(readUiSkin);
+  const [deepLinkScreenId, setDeepLinkScreenId] = useState<string | null>(null);
+  const masksLink = useMemo(() => parseMasksLink(window.location.search), []);
+  const deepLinkAppliedRef = React.useRef(false);
   const initializedRef = React.useRef(false);
   const transitionTargetRef = React.useRef<ScreenInstance[] | null>(null);
   const recoveryCheckedRef = React.useRef(false);
@@ -100,7 +105,10 @@ export function App(): JSX.Element {
     if (!initializedRef.current) return;
     const target = transitionTargetRef.current;
     if (target) {
-      if (JSON.stringify(target) === JSON.stringify(screens)) transitionTargetRef.current = null;
+      // Программная загрузка (проект/экран из узла стены): ждём появления всех
+      // её экранов и не помечаем это как правку пользователя.
+      const ids = new Set(screens.map((screen) => screen.id));
+      if (target.every((screen) => ids.has(screen.id))) transitionTargetRef.current = null;
       return;
     }
     setDirty(true);
@@ -233,7 +241,7 @@ export function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (!profileReady || recoveryCheckedRef.current) return;
+    if (!profileReady || recoveryCheckedRef.current || masksLink) return;
     recoveryCheckedRef.current = true;
     void window.projectRecovery.load().then(async (recovery) => {
       if (recovery.status === 'corrupt') {
@@ -281,7 +289,98 @@ export function App(): JSX.Element {
         setProjectStatus(error instanceof Error ? error.message : t('app.status.recoveryLoadFailed', { message: '' }));
       }
     }).catch((error) => setProjectStatus(error instanceof Error ? error.message : t('app.status.recoveryLoadFailed', { message: '' })));
-  }, [profileReady]);
+  }, [profileReady, masksLink]);
+
+  // Открытие из узла LED-стены: экран маски привязан к стене по id. Первое
+  // открытие создаёт его из параметров схемы, повторное — поднимает сохранённый
+  // в браузере и сразу выбирает на холсте.
+  useEffect(() => {
+    const link = masksLink;
+    if (!link || !profileReady || deepLinkAppliedRef.current) return;
+    deepLinkAppliedRef.current = true;
+    const fold = (value: string | null | undefined) => (value || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+    const sameModel = (preset: CabinetPreset) =>
+      Boolean(link.model) && (fold(preset.model) === fold(link.model) || fold(`${preset.brand} ${preset.model}`) === fold(link.model));
+    void (async () => {
+      let preset = (link.preset ? presets.find((item) => item.id === link.preset) : undefined)
+        ?? (link.model ? presets.find(sameModel) : undefined);
+      if (!preset) {
+        // Каталог мог быть очищен в настройках — подтягиваем модель по ссылке.
+        const catalog = await window.presetFiles.catalog();
+        preset = (link.preset ? catalog.find((item) => item.id === link.preset) : undefined)
+          ?? (link.model ? catalog.find(sameModel) : undefined);
+        if (preset) {
+          const found = preset;
+          setCustomPresets((current) => {
+            try {
+              return mergeUniquePresets(current, [found], { skipDuplicates: true, lang });
+            } catch {
+              return current;
+            }
+          });
+        }
+      }
+      const presetId = preset ? preset.id : presets[0]?.id;
+      if (!presetId) {
+        setProjectStatus(t('app.status.masksPresetMissing'));
+        return;
+      }
+      const saved = readBoundScreen(link.wall);
+      const name = (saved && saved.name) || link.name || t('app.masks.defaultScreenName');
+      let screen: ScreenInstance;
+      if (saved) {
+        const defaults = createDefaultVisualSettings(name);
+        screen = {
+          ...saved,
+          id: link.wall,
+          name,
+          presetId,
+          cols: link.cols,
+          rows: link.rows,
+          // Геометрию задаёт схема, поэтому сетку берём из ссылки; вырезы вне
+          // новой сетки отбрасываем.
+          emptyCabinetKeys: (saved.emptyCabinetKeys || []).filter((key) => {
+            const [col, row] = String(key).split('-').map(Number);
+            return Number.isInteger(col) && Number.isInteger(row)
+              && col >= 0 && row >= 0 && col < link.cols && row < link.rows;
+          }),
+          visualSettings: {
+            ...defaults,
+            ...saved.visualSettings,
+            config: { ...defaults.config, ...saved.visualSettings.config }
+          }
+        };
+      } else {
+        screen = {
+          id: link.wall,
+          name,
+          presetId,
+          cols: link.cols,
+          rows: link.rows,
+          emptyCabinetKeys: [],
+          position: { x: 32, y: 32 },
+          rotation: 0,
+          visualSettings: createDefaultVisualSettings(name)
+        };
+      }
+      transitionTargetRef.current = [screen];
+      setWorkspaceSection('pixel-mask');
+      setScreensToLoad([screen]);
+      setProjectLoadSignal((value) => value + 1);
+      setDeepLinkScreenId(screen.id);
+      setProjectStatus(t('app.status.masksOpened', { name }));
+    })();
+  }, [masksLink, profileReady, presets, lang, t]);
+
+  // Правки маски сохраняем под id стены: следующее открытие из той же ноды
+  // поднимет этот же экран, а не создаст новый.
+  useEffect(() => {
+    if (!masksLink || !profileReady) return;
+    const screen = projectScreens.find((item) => item.id === masksLink.wall);
+    if (!screen) return;
+    const timer = setTimeout(() => writeBoundScreen(masksLink.wall, screen), 300);
+    return () => clearTimeout(timer);
+  }, [projectScreens, masksLink, profileReady]);
 
   useEffect(() => {
     window.appLifecycle.setDirty(dirty, lang);
@@ -424,6 +523,8 @@ export function App(): JSX.Element {
               onPresetsImport={importSessionPresets}
               projectScreens={screensToLoad}
               projectLoadSignal={projectLoadSignal}
+              initialScreenId={deepLinkScreenId}
+              boundWallId={masksLink?.wall ?? null}
               onProjectScreensChange={handleProjectScreensChange}
               signal={signal}
               onSignalChange={(nextSignal) => { setSignal(nextSignal); markDirty(); }}

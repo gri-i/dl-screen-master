@@ -1,5 +1,6 @@
 import type { CabinetPreset, Project } from '@shared/types';
 import type { Lang } from '@shared/lang';
+import { parseCabinetCatalog } from '@shared/cabinetCatalog';
 
 /**
  * Платформенный слой: десктоп (Electron) или web-сборка для встраивания в CRM.
@@ -69,6 +70,19 @@ function confirmDiscardChanges(lang: Lang): 'discard' | 'cancel' {
   return window.confirm(message) ? 'discard' : 'cancel';
 }
 
+/** Каталог кабинетов рядом с index.html: `catalog/cabinet-presets.json`. */
+async function fetchWebCatalog(): Promise<CabinetPreset[]> {
+  try {
+    const response = await fetch(new URL(WEB_CATALOG_URL, document.baseURI).toString(), { cache: 'no-store' });
+    if (!response.ok) return [];
+    // Тот же разбор, что в десктопе: невалидные пресеты пропускаются с
+    // предупреждением, а не роняют интерфейс при слиянии.
+    return parseCabinetCatalog(await response.json());
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Устанавливает браузерные реализации моста, если приложение открыто не в
  * Electron. Идемпотентно: в десктопе ничего не делает.
@@ -99,11 +113,27 @@ export function installWebBridge(): void {
 
   window.presetFiles = {
     load: async (): Promise<CabinetPreset[]> => {
+      let raw: string | null = null;
       try {
-        return parseStoredPresets(window.localStorage.getItem(WEB_PRESETS_KEY));
+        raw = window.localStorage.getItem(WEB_PRESETS_KEY);
       } catch {
-        return [];
+        // Хранилище недоступно: библиотека живёт в памяти, но каталог отдаём.
+        return fetchWebCatalog();
       }
+      // Ключа ещё нет — первый запуск web-версии. В отличие от явно очищенной
+      // базы (`[]` в хранилище), подставляем стартовый каталог, как в десктопе.
+      if (raw === null) {
+        const seeded = await fetchWebCatalog();
+        if (seeded.length > 0) {
+          try {
+            window.localStorage.setItem(WEB_PRESETS_KEY, JSON.stringify(seeded));
+          } catch {
+            // Не сохранилось — каталог всё равно вернётся в этом запуске.
+          }
+        }
+        return seeded;
+      }
+      return parseStoredPresets(raw);
     },
     save: async (presets: CabinetPreset[]): Promise<void> => {
       try {
@@ -112,17 +142,7 @@ export function installWebBridge(): void {
         // Хранилище недоступно (приватный режим/запрет iframe) — работаем в памяти.
       }
     },
-    catalog: async (): Promise<CabinetPreset[]> => {
-      try {
-        const response = await fetch(new URL(WEB_CATALOG_URL, document.baseURI).toString(), { cache: 'no-store' });
-        if (!response.ok) return [];
-        const parsed: unknown = await response.json();
-        const presets = (parsed as { presets?: unknown } | null)?.presets;
-        return Array.isArray(presets) ? (presets as CabinetPreset[]) : [];
-      } catch {
-        return [];
-      }
-    },
+    catalog: fetchWebCatalog,
     // Импорт/экспорт JSON через файловые диалоги в web-версии не используется.
     import: async (): Promise<CabinetPreset[] | null> => null,
     importRcfg: async (): Promise<CabinetPreset | null> => null,

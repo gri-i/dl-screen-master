@@ -26,6 +26,7 @@ import {
 import type { ScreenConfig } from './PowerCalculator';
 import { importNovaStarProject } from '../novastarImport';
 import { isDesktop } from '../platform';
+import { renderThumbnail, writeBoundThumbnail } from '../masksBinding';
 import { PowerPathPlanner } from './PowerPathPlanner';
 import { buildResolumeXml } from '../resolumeExport';
 import { buildCabinetScheduleCsv, buildReportHtml, type ExportScreen } from '../projectExport';
@@ -156,6 +157,10 @@ interface TestPatternViewerProps {
   onPresetsImport: (presets: CabinetPreset[]) => void;
   projectScreens: ScreenInstance[] | null;
   projectLoadSignal: number;
+  /** Экран, который нужно выбрать после загрузки (пришёл из узла LED-стены). */
+  initialScreenId?: string | null;
+  /** Стена, к которой привязана маска: для неё сохраняем миниатюру в схему. */
+  boundWallId?: string | null;
   onProjectScreensChange: (screens: ScreenInstance[]) => void;
   signal: SignalFormat;
   onSignalChange: (signal: SignalFormat) => void;
@@ -279,6 +284,15 @@ const DEFAULT_VISUAL_SETTINGS: ScreenVisualSettings = {
   logoOpacityPercent: 50
 };
 
+/** Настройки нового экрана (подпись — имя экрана из схемы). */
+export function createDefaultVisualSettings(label = 'Screen_1'): ScreenVisualSettings {
+  return {
+    ...DEFAULT_VISUAL_SETTINGS,
+    config: clonePatternConfig(DEFAULT_PATTERN_CONFIG),
+    screenLabel: label
+  };
+}
+
 const LABEL_REFERENCE_DIAGONAL = Math.hypot(6 * 128, 4 * 128);
 
 function scaledLabelFontSize(baseSize: number, width: number, height: number): number {
@@ -350,6 +364,8 @@ export function TestPatternViewer({
   onPresetsImport,
   projectScreens,
   projectLoadSignal,
+  initialScreenId,
+  boundWallId,
   onProjectScreensChange,
   signal,
   onSignalChange
@@ -418,6 +434,22 @@ export function TestPatternViewer({
   const [historyRevision, setHistoryRevision] = useState(0);
   const lastHandledAddScreenSignal = useRef(addScreenSignal);
   const lastHandledClearScreensSignal = useRef(clearScreensSignal);
+
+  // Миниатюра маски для узла стены: берём превью привязанного экрана,
+  // уменьшаем и кладём в localStorage — дизайн покажет её на ноде.
+  const lastThumbSource = useRef('');
+  useEffect(() => {
+    if (!boundWallId || placedScreens.length === 0) return;
+    const bound = placedScreens.find((screen) => screen.id === boundWallId);
+    if (!bound || !bound.imageSource || bound.imageSource === lastThumbSource.current) return;
+    lastThumbSource.current = bound.imageSource;
+    const timer = setTimeout(() => {
+      void renderThumbnail(bound.imageSource, 320).then((dataUrl) => {
+        if (dataUrl) writeBoundThumbnail(boundWallId, dataUrl);
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [boundWallId, placedScreens]);
 
   const preset = presets.find((item) => item.id === presetId) ?? presets[0];
 
@@ -558,11 +590,22 @@ export function TestPatternViewer({
       } satisfies PlacedScreen;
     });
     setPlacedScreens(loaded);
-    setSelectedPlacedScreenId(null);
-    setSelectedScreenIds([]);
+    // Экран, пришедший из узла LED-стены, сразу выбираем: маска открыта на
+    // редактирование, а не просто лежит на холсте.
+    const initial = initialScreenId ? loaded.find((screen) => screen.id === initialScreenId) : null;
+    setSelectedPlacedScreenId(initial ? initial.id : null);
+    setSelectedScreenIds(initial ? [initial.id] : []);
+    if (initial) {
+      applyVisualSettings(initial.visualSettings);
+      onScreenConfigChange({
+        ...initial.screenConfig,
+        emptyCabinetKeys: [...initial.screenConfig.emptyCabinetKeys]
+      });
+    } else {
+      resetVisualSettings();
+    }
     historyRef.current = { past: [], future: [] };
     setHistoryRevision((value) => value + 1);
-    resetVisualSettings();
   }, [projectLoadSignal]);
 
   function currentVisualSettings(): ScreenVisualSettings {
