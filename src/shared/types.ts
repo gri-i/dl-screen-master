@@ -123,6 +123,17 @@ export interface PowerCircuit {
   name: string;
   phase: PowerPhase;
   assignedCabinets: string[];
+  /** коробка, в которой стоит эта цепь (18.11.2026): на LED-стене — один коннектор на коробку */
+  box?: string;
+}
+
+/** Силовая коробка (32А/3ф, 6 розеток 16А) — то, что физически несут на площадку. */
+export interface PowerBox {
+  id: string;
+  name: string;
+  circuits: string[];        // id цепей плана
+  /** вход коробки: типовая 32А/3ф CEE — по нему дизайн подбирает распределитель */
+  input?: string;
 }
 
 export interface PowerPlan {
@@ -132,6 +143,7 @@ export interface PowerPlan {
   powerFactor: number;
   phases: 1 | 3;
   circuits: PowerCircuit[];
+  boxes?: PowerBox[];
 }
 
 /** Результат расчёта питания для экрана */

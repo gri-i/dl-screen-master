@@ -147,6 +147,12 @@ export interface BoundPowerSummary {
   avgPowerW: number;
   loads: BoundPowerLoad[];
   imbalancePercent: number;
+  /** выбранный в масках контроллер экрана (для ассоциации в дизайне) */
+  controller: { model: string; ports: number } | null;
+  /** занятые порты контроллера: по линии на порт (коннекторы на LED-стене) */
+  signal: { controller: string; card: number; port: number; cabinets: number }[];
+  /** силовые коробки: по коннектору на коробку, внутри — её занятые розетки */
+  boxes: { name: string; input?: string; sockets: { circuit: string; phase: string; cabinets: number; n?: number }[] }[];
   updatedAt: string;
 }
 
@@ -163,7 +169,16 @@ function isPowerSummary(value: unknown): value is BoundPowerSummary {
     && finite(summary.maxPowerW) && finite(summary.avgPowerW) && finite(summary.imbalancePercent)
     && Array.isArray(summary.loads) && summary.loads.every((load) => !!load
       && (load.phase === 'L1' || load.phase === 'L2' || load.phase === 'L3')
-      && finite(load.cabinets) && finite(load.maxPowerW) && finite(load.amps));
+      && finite(load.cabinets) && finite(load.maxPowerW) && finite(load.amps))
+    && (summary.signal === undefined || (Array.isArray(summary.signal) && summary.signal.every((line) => !!line
+      && finite(line.port) && finite(line.card) && finite(line.cabinets))))
+    && (summary.boxes === undefined || (Array.isArray(summary.boxes) && summary.boxes.every((box) => !!box
+      && typeof box.name === 'string' && Array.isArray(box.sockets))))
+    // контроллер необязателен: старые сводки без него читаются как «не выбран»
+    && (summary.controller === null || summary.controller === undefined
+      || (typeof summary.controller === 'object'
+          && typeof (summary.controller as { model?: unknown }).model === 'string'
+          && finite((summary.controller as { ports?: unknown }).ports)));
 }
 
 export function readBoundPower(wallId: string, storage: Storage = window.localStorage): BoundPowerSummary | null {
@@ -171,7 +186,14 @@ export function readBoundPower(wallId: string, storage: Storage = window.localSt
     const raw = storage.getItem(boundPowerStorageKey(wallId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { version?: number; summary?: unknown } | null;
-    return parsed && parsed.version === POWER_VERSION && isPowerSummary(parsed.summary) ? parsed.summary : null;
+    if (!parsed || parsed.version !== POWER_VERSION || !isPowerSummary(parsed.summary)) return null;
+    // старые сводки писались без контроллера и линий — отдаём пустые значения
+    return {
+      ...parsed.summary,
+      controller: parsed.summary.controller ?? null,
+      signal: parsed.summary.signal ?? [],
+      boxes: parsed.summary.boxes ?? []
+    };
   } catch {
     return null;
   }

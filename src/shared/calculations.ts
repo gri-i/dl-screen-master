@@ -4,7 +4,8 @@ import type {
   PowerCalculationResult,
   PowerGridConfig,
   PowerPhase,
-  PowerPlan
+  PowerPlan,
+  Processor
 } from './types';
 import { usablePowerPerPortW } from './powerLimits';
 
@@ -190,4 +191,77 @@ export function screenPowerSummary(
     loads: loads?.loads ?? [],
     imbalancePercent: loads?.imbalancePercent ?? 0
   };
+}
+
+// ── Линии, которыми экран расключён в масках (18.11.2026) ───────────────────
+// Для дизайна: по этим линиям на LED-стене появляются коннекторы, а от портов
+// контроллера и розеток силовых коробок идут соединительные линии.
+
+export interface SignalLine {
+  /** модель контроллера («H9», «MCTRL4K»…) */
+  controller: string;
+  /** номер sending-карты (1, если карта одна) */
+  card: number;
+  /** номер порта на карте — в дизайне это «LAN OUT N» */
+  port: number;
+  /** сколько кабинетов висит на линии */
+  cabinets: number;
+}
+
+/** Занятые порты контроллера экрана: по одной линии на порт. */
+export function signalLines(processor?: Processor): SignalLine[] {
+  const out: SignalLine[] = [];
+  for (const port of (processor && processor.ports) || []) {
+    const cabinets = (port.assignedCabinets || []).length;
+    if (!cabinets) continue;
+    const card = Number(String(port.controllerId ?? '1').match(/\d+/)?.[0] ?? 1) || 1;
+    const parsed = Number(String(port.sourcePortName ?? '').match(/\d+/)?.[0] ?? NaN);
+    const portNo = Number.isFinite(parsed) ? parsed : out.length + 1;
+    out.push({ controller: port.controllerName || (processor && processor.model) || '', card, port: portNo, cabinets });
+  }
+  return out;
+}
+
+export interface PowerSocketLine {
+  circuit: string;
+  phase: PowerPhase;
+  cabinets: number;
+  /** номер розетки внутри коробки (1…N) — по нему дизайн берёт «POWER OUT N» */
+  n?: number;
+}
+
+export interface PowerBoxLine {
+  /** имя коробки («Коробка 1»); для одиночной цепи без коробки — имя цепи */
+  name: string;
+  sockets: PowerSocketLine[];
+  /** вход коробки (cee32_5p) — по нему дизайн подбирает модель распределителя */
+  input?: string;
+}
+
+/**
+ * Силовые линии по коробкам: одна коробка — один коннектор на стене,
+ * розетки коробки — линии к нему. Цепи без коробки показываем по одной.
+ */
+export function powerBoxLines(plan?: PowerPlan): PowerBoxLine[] {
+  if (!plan || !Array.isArray(plan.circuits)) return []
+  const byId = new Map(plan.circuits.map(circuit => [circuit.id, circuit]))
+  const used = new Set<string>()
+  const out: PowerBoxLine[] = []
+  for (const box of plan.boxes ?? []) {
+    const sockets: PowerSocketLine[] = []
+    // номер розетки — её место В КОРОБКЕ (1…6), а не общий номер цепи плана:
+    // иначе в дизайне линии выходили бы не из тех «POWER OUT»
+    ;(box.circuits || []).forEach((id, socketNo) => {
+      const circuit = byId.get(id)
+      if (!circuit || !(circuit.assignedCabinets || []).length) return
+      used.add(circuit.id)
+      sockets.push({ circuit: circuit.name, phase: circuit.phase, cabinets: circuit.assignedCabinets.length, n: socketNo + 1 })
+    })
+    if (sockets.length) out.push({ name: box.name, sockets, input: box.input || 'cee32_5p' })
+  }
+  for (const circuit of plan.circuits) {
+    if (used.has(circuit.id) || !(circuit.assignedCabinets || []).length) continue
+    out.push({ name: circuit.name, sockets: [{ circuit: circuit.name, phase: circuit.phase, cabinets: circuit.assignedCabinets.length, n: 1 }] })
+  }
+  return out
 }

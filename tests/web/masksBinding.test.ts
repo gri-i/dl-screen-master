@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  boundScreenStorageKey, boundThumbnailStorageKey, clearBoundThumbnail, readBoundScreen,
-  readBoundThumbnail, renderThumbnail, writeBoundScreen, writeBoundThumbnail
+  boundPowerStorageKey, boundScreenStorageKey, boundThumbnailStorageKey, clearBoundThumbnail,
+  readBoundPower, readBoundScreen, readBoundThumbnail, renderThumbnail, writeBoundPower,
+  writeBoundScreen, writeBoundThumbnail
 } from '../../src/renderer/masksBinding';
+import type { BoundPowerSummary } from '../../src/renderer/masksBinding';
 import type { ScreenInstance } from '../../src/shared/types';
 
 const screen: ScreenInstance = {
@@ -75,4 +77,39 @@ test('миниатюра маски: ключ, запись и чтение data
   clearBoundThumbnail('w1', store);
   assert.equal(readBoundThumbnail('w1', store), null);
   assert.equal(await renderThumbnail(png), null);   // в Node без document
+});
+
+test('сводка по силовым путям: контроллер экрана и обратная совместимость', () => {
+  const store = storage();
+  const summary: BoundPowerSummary = {
+    phases: 3, voltage: 230, breakerAmps: 16, safetyMarginPercent: 20, powerFactor: 0.95,
+    cabinets: 32, assigned: 32, maxPowerW: 4640, avgPowerW: 1536,
+    loads: [
+      { phase: 'L1', cabinets: 16, maxPowerW: 2320, avgPowerW: 768, amps: 10.6 },
+      { phase: 'L2', cabinets: 16, maxPowerW: 2320, avgPowerW: 768, amps: 10.6 },
+      { phase: 'L3', cabinets: 0, maxPowerW: 0, avgPowerW: 0, amps: 0 }
+    ],
+    imbalancePercent: 100, controller: { model: 'H9', ports: 16 },
+    signal: [{ controller: 'H9', card: 1, port: 1, cabinets: 16 }],
+    boxes: [{ name: 'Коробка 1', sockets: [{ circuit: 'Цепь 1', phase: 'L1', cabinets: 16 }] }],
+    updatedAt: '2026-11-18T10:00:00.000Z'
+  };
+  writeBoundPower('w1', summary, store);
+  assert.equal(boundPowerStorageKey('w1'), 'dl-screen-master-masks-power:w1');
+  assert.deepEqual(readBoundPower('w1', store)?.controller, { model: 'H9', ports: 16 });
+
+  // сводка без контроллера и линий (старая версия) читается как «не выбран» и пустые линии
+  const { controller: _ignored, signal: _sig, boxes: _boxes, ...withoutController } = summary;
+  writeBoundPower('w2', withoutController as BoundPowerSummary, store);
+  assert.equal(readBoundPower('w2', store)?.controller, null);
+  assert.deepEqual(readBoundPower('w2', store)?.signal, []);
+  assert.deepEqual(readBoundPower('w2', store)?.boxes, []);
+  // линии читаются как есть
+  assert.deepEqual(readBoundPower('w1', store)?.signal, [{ controller: 'H9', card: 1, port: 1, cabinets: 16 }]);
+  assert.deepEqual(readBoundPower('w1', store)?.boxes?.[0].name, 'Коробка 1');
+
+  // битый контроллер — сводка не читается
+  writeBoundPower('w3', { ...summary, controller: { model: 'H9', ports: 'много' } } as unknown as BoundPowerSummary, store);
+  assert.equal(readBoundPower('w3', store), null);
+  assert.equal(readBoundPower('пусто', store), null);
 });

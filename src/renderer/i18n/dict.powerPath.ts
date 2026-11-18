@@ -30,6 +30,8 @@ export const powerPathDict: Record<Lang, Dict> = {
     'pp.summary': 'Назначено {assigned} из {total} кабинетов{overloadPart} · допустимо {usableKw} кВт на порт (не более 3,5 кВт){cabinetLimitPart}',
     'pp.summaryOverloadPart': ' · перегружено портов: {count}',
     'pp.phaseUneven': '⚠ фазы загружены неравномерно{unused} · перекос {percent}%',
+    'pp.boxName': 'Коробка {n}',
+    'pp.boxTag': 'коробка',
     'pp.phaseUnusedPart': ' ({phases} не используется)',
     'pp.summaryCabinetLimitPart': ' · до {count} кабинетов на порт'
   },
@@ -62,6 +64,8 @@ export const powerPathDict: Record<Lang, Dict> = {
     'pp.summary': 'Assigned {assigned} of {total} cabinets{overloadPart} · allowed {usableKw} kW per port (max 3.5 kW){cabinetLimitPart}',
     'pp.summaryOverloadPart': ' · overloaded circuits: {count}',
     'pp.phaseUneven': '⚠ phases loaded unevenly{unused} · imbalance {percent}%',
+    'pp.boxName': 'Box {n}',
+    'pp.boxTag': 'box',
     'pp.phaseUnusedPart': ' ({phases} unused)',
     'pp.summaryCabinetLimitPart': ' · up to {count} cabinets per port'
   }

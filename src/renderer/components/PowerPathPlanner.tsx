@@ -57,6 +57,8 @@ export function PowerPathPlanner({
   const cabinetAmps = preset.maxPowerW / Math.max(1, value.voltage * value.powerFactor);
   const usablePowerW = usablePowerPerPortW(value.voltage, value.circuitBreakerAmps, value.safetyMarginPercent, value.powerFactor);
   const maxCabinetsPerCircuit = preset.maxPowerW > 0 ? Math.floor(usablePowerW / preset.maxPowerW) : null;
+  // подпись коробки в строке цепи: «Цепь 3 · Коробка 1 · L3»
+  const boxName = (circuit: PowerCircuit) => (value.boxes ?? []).find(box => box.id === circuit.box)?.name ?? '';
 
   function updateSettings(patch: Partial<PowerPlan>): void {
     onChange({ ...value, ...patch });
@@ -83,13 +85,22 @@ export function PowerPathPlanner({
   // уже существующим цепям, которые тоже защищены отходящими автоматами.
   function addPowerDistroBox(): void {
     const startIndex = value.circuits.length;
+    const boxes = value.boxes ?? [];
+    const boxId = crypto.randomUUID();
+    const boxName = t('pp.boxName', { n: boxes.length + 1 });
     const circuits: PowerCircuit[] = Array.from({ length: 6 }, (_, index) => ({
       id: crypto.randomUUID(),
       name: t('pp.circuitName', { n: startIndex + index + 1 }),
       phase: PHASES[index % 3],
-      assignedCabinets: []
+      assignedCabinets: [],
+      box: boxId
     }));
-    onChange({ ...value, phases: 3, circuitBreakerAmps: 16, circuits: [...value.circuits, ...circuits] });
+    onChange({
+      ...value, phases: 3, circuitBreakerAmps: 16,
+      circuits: [...value.circuits, ...circuits],
+      // коробка — реальная единица: на LED-стене ей соответствует один коннектор питания
+      boxes: [...boxes, { id: boxId, name: boxName, circuits: circuits.map(c => c.id), input: 'cee32_5p' }]
+    });
     onActiveCircuitChange(circuits[0].id);
     onEditingChange(true);
   }
@@ -160,7 +171,7 @@ export function PowerPathPlanner({
             >
               <span className="power-circuit-heading">
                 <i className="power-circuit-swatch" />
-                <b>{circuit.name} · {circuit.phase}</b>
+                <b>{circuit.name}{boxName(circuit) ? ` · ${boxName(circuit)}` : ''} · {circuit.phase}</b>
                 {remainingCabinets !== null && <em>{status === 'over' ? `${t('pp.overload')} ` : ''}{load}%</em>}
               </span>
               {remainingCabinets === null ? (

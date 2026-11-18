@@ -215,7 +215,11 @@ const NOVASTAR_CONTROLLERS: { model: string; ports: number; maxPixelsPerPort: nu
   { model: 'MCTRL660', ports: 4, maxPixelsPerPort: 650000 },
   { model: 'MCTRL660 Pro', ports: 6, maxPixelsPerPort: 650000 },
   { model: 'H9', ports: 16, maxPixelsPerPort: 650000, maxSendingCards: 5 },
-  { model: 'H15', ports: 16, maxPixelsPerPort: 650000, maxSendingCards: 10 }
+  { model: 'H15', ports: 16, maxPixelsPerPort: 650000, maxSendingCards: 10 },
+  // CVT — 4K-контроллеры (18.11.2026): порты по карточке каталога (16 и 10),
+  // ёмкость порта — как у остальных 8-бит/60 Гц
+  { model: 'CVT4K-S', ports: 16, maxPixelsPerPort: 650000 },
+  { model: 'CVT10-S', ports: 10, maxPixelsPerPort: 650000 }
 ];
 
 function screenDisplaySize(

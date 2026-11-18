@@ -8,7 +8,7 @@ import { parseMasksLink } from './masksLink';
 import { readBoundScreen, writeBoundPower, writeBoundScreen } from './masksBinding';
 import type { CabinetPreset, PowerGridConfig, Project, ScreenInstance, SignalFormat, UiSkin } from '@shared/types';
 import { DEFAULT_SIGNAL } from '@shared/capacity';
-import { screenPowerSummary } from '@shared/calculations';
+import { powerBoxLines, screenPowerSummary, signalLines } from '@shared/calculations';
 import { mergeUniquePresets } from '@shared/presetValidation';
 import { buildProjectSnapshot, finishDestructiveTransition, mergePresetsPreservingExisting } from '@shared/projectPersistence';
 import { parseProject, ProjectValidationError } from '@shared/projectValidation';
@@ -387,8 +387,16 @@ export function App(): JSX.Element {
       const preset = presets.find((item) => item.id === screen.presetId);
       if (preset) {
         const cabinets = Math.max(0, screen.cols * screen.rows - (screen.emptyCabinetKeys?.length ?? 0));
+        // контроллер экрана — чтобы дизайн мог связать стену с контроллером на схеме
+        const processor = screen.processor;
         writeBoundPower(masksLink.wall, {
           ...screenPowerSummary(screen.powerPlan, preset, cabinets),
+          controller: processor && processor.model
+            ? { model: processor.model, ports: processor.ports?.length ?? 0 }
+            : null,
+          // линии: по занятым портам контроллера и занятым розеткам коробок (для коннекторов на стене)
+          signal: signalLines(processor),
+          boxes: powerBoxLines(screen.powerPlan),
           updatedAt: new Date().toISOString()
         });
       }
