@@ -2,6 +2,7 @@ import type { CabinetPreset, PowerCircuit, PowerPlan, Processor, ProcessorPort, 
 import { DEFAULT_SIGNAL, portLoad, portMaxPixels } from '@shared/capacity';
 import type { Lang } from '@shared/lang';
 import { circuitLoad, routeColor, routeHue, usablePowerPerPortW } from '@shared/powerLimits';
+import { cabinetMaskSize } from '@shared/cabinetMask';
 
 const MESSAGES = {
   ru: {
@@ -24,8 +25,10 @@ const MESSAGES = {
     detailHeaders: ['Параметр', 'Значение'],
     cabinetParam: 'Кабинет',
     layoutInstalled: 'Раскладка / установлено',
-    screenResolutionPx: 'Разрешение экрана, px',
-    cabinetSizeResolution: 'Размер кабинета, мм / разрешение, px',
+    screenResolutionPx: 'Физическое разрешение экрана, px',
+    screenMaskResolutionPx: 'Разрешение маски, px',
+    cabinetSizeResolution: 'Размер кабинета, мм / физическое разрешение, px',
+    cabinetMaskResolution: 'Маска кабинета, px',
     pixelPitchMm: 'Шаг пикселя, мм',
     screenSizeMm: 'Размер экрана, мм',
     weightKg: 'Вес, кг',
@@ -57,8 +60,10 @@ const MESSAGES = {
     detailHeaders: ['Parameter', 'Value'],
     cabinetParam: 'Cabinet',
     layoutInstalled: 'Layout / installed',
-    screenResolutionPx: 'Screen resolution, px',
-    cabinetSizeResolution: 'Cabinet size, mm / resolution, px',
+    screenResolutionPx: 'Physical screen resolution, px',
+    screenMaskResolutionPx: 'Mask resolution, px',
+    cabinetSizeResolution: 'Cabinet size, mm / physical resolution, px',
+    cabinetMaskResolution: 'Cabinet mask, px',
     pixelPitchMm: 'Pixel pitch, mm',
     screenSizeMm: 'Screen size, mm',
     weightKg: 'Weight, kg',
@@ -335,11 +340,14 @@ export function buildReportHtml(projectName: string, screens: ExportScreen[], la
       return [swatch, circuit.name, circuit.phase, circuit.assignedCabinets.length, watts.toFixed(2), limit.toFixed(2), bar, (watts / Math.max(1, plan!.voltage * plan!.powerFactor)).toFixed(2), status === 'over' ? m.overloaded : m.ok, circuit.assignedCabinets.map((key, index) => `${index + 1}: ${key}`).join('; ')];
     });
     const mask = screen.imageSource?.startsWith('data:image/png;base64,') ? `<img src="${escapeXml(screen.imageSource)}" alt="${caption}"/>` : buildScreenSvg({ ...screen, processor: undefined });
+    const presetMask = cabinetMaskSize(screen.preset);
     return `<section class="page"><h2>${caption} · ${m.mask}</h2><div class="mask">${mask}</div>${table(m.detailHeaders, [
       [m.cabinetParam, `${screen.preset.brand} ${screen.preset.model}`],
       [m.layoutInstalled, `${screen.cols} × ${screen.rows} / ${count}`],
       [m.screenResolutionPx, `${screen.cols * screen.preset.resolutionX} × ${screen.rows * screen.preset.resolutionY}`],
+      [m.screenMaskResolutionPx, `${screen.cols * presetMask.width} × ${screen.rows * presetMask.height}`],
       [m.cabinetSizeResolution, `${screen.preset.widthMm} × ${screen.preset.heightMm} / ${screen.preset.resolutionX} × ${screen.preset.resolutionY}`],
+      [m.cabinetMaskResolution, `${presetMask.width} × ${presetMask.height}`],
       [m.pixelPitchMm, screen.preset.pixelPitchMm],
       [m.screenSizeMm, `${screen.cols * screen.preset.widthMm} × ${screen.rows * screen.preset.heightMm}`],
       [m.weightKg, (count * screen.preset.weightKg).toFixed(2)],

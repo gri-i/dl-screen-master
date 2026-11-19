@@ -189,6 +189,11 @@ function parsePreset(value: unknown, field: string, messages: ValidationMessages
   const pixelPitchMm = finite(value.pixelPitchMm, `${field}.pixelPitchMm`, messages, errors, .1, 100);
   const resolutionX = integer(value.resolutionX, `${field}.resolutionX`, messages, errors, 1, 16384);
   const resolutionY = integer(value.resolutionY, `${field}.resolutionY`, messages, errors, 1, 16384);
+  const hasMaskX = value.maskResolutionX !== undefined;
+  const hasMaskY = value.maskResolutionY !== undefined;
+  const maskResolutionX = hasMaskX ? integer(value.maskResolutionX, `${field}.maskResolutionX`, messages, errors, 1, 16384) : undefined;
+  const maskResolutionY = hasMaskY ? integer(value.maskResolutionY, `${field}.maskResolutionY`, messages, errors, 1, 16384) : undefined;
+  if (hasMaskX !== hasMaskY) errors.push(`${field}.maskResolutionX: both mask X and Y are required`);
   const weightKg = finite(value.weightKg, `${field}.weightKg`, messages, errors, .01, 500);
   const maxPowerW = finite(value.maxPowerW, `${field}.maxPowerW`, messages, errors, .1, 10000);
   const avgPowerW = finite(value.avgPowerW, `${field}.avgPowerW`, messages, errors, .1, 10000);
@@ -199,7 +204,11 @@ function parsePreset(value: unknown, field: string, messages: ValidationMessages
   if (id === undefined || brand === undefined || model === undefined || widthMm === undefined || heightMm === undefined ||
     pixelPitchMm === undefined || resolutionX === undefined || resolutionY === undefined || weightKg === undefined ||
     maxPowerW === undefined || avgPowerW === undefined) return undefined;
-  return { id, brand, model, widthMm, heightMm, pixelPitchMm, resolutionX, resolutionY, weightKg, maxPowerW, avgPowerW, ...(receiverCardName ? { receiverCardName } : {}) };
+  return {
+    id, brand, model, widthMm, heightMm, pixelPitchMm, resolutionX, resolutionY, weightKg, maxPowerW, avgPowerW,
+    ...(maskResolutionX !== undefined && maskResolutionY !== undefined ? { maskResolutionX, maskResolutionY } : {}),
+    ...(receiverCardName ? { receiverCardName } : {})
+  };
 }
 
 function parsePattern(value: unknown, field: string, messages: ValidationMessages, errors: string[]): PatternConfig {

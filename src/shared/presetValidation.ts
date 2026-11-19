@@ -13,6 +13,7 @@ const MESSAGES: Record<Lang, {
   missingId: string; missingBrand: string; missingModel: string;
   range: (field: string, min: number, max: number) => string;
   avgExceedsMax: string;
+  maskPair: string;
   duplicate: (brand: string, model: string) => string;
 }> = {
   ru: {
@@ -21,6 +22,7 @@ const MESSAGES: Record<Lang, {
     missingModel: 'Не указана модель',
     range: (field, min, max) => `${field}: допустимо ${min}–${max}`,
     avgExceedsMax: 'Средняя мощность не может превышать максимальную',
+    maskPair: 'Разрешение маски: укажите обе стороны (X и Y) или оставьте пусто',
     duplicate: (brand, model) => `Дубликат пресета: ${brand} ${model}`
   },
   en: {
@@ -29,6 +31,7 @@ const MESSAGES: Record<Lang, {
     missingModel: 'Model is required',
     range: (field, min, max) => `${field}: must be ${min}–${max}`,
     avgExceedsMax: 'Average power cannot exceed maximum power',
+    maskPair: 'Mask resolution: set both X and Y, or leave both empty',
     duplicate: (brand, model) => `Duplicate preset: ${brand} ${model}`
   }
 };
@@ -82,6 +85,19 @@ export function validatePreset(preset: CabinetPreset, lang: Lang = 'ru'): string
     if (!Number.isFinite(value) || value < min || value > max) errors.push(m.range(field, min, max));
   }
   if (preset.avgPowerW > preset.maxPowerW) errors.push(m.avgExceedsMax);
+  const hasMaskX = preset.maskResolutionX !== undefined;
+  const hasMaskY = preset.maskResolutionY !== undefined;
+  if (hasMaskX !== hasMaskY) errors.push(m.maskPair);
+  if (hasMaskX && hasMaskY) {
+    for (const [field, value] of [
+      ['maskResolutionX', preset.maskResolutionX],
+      ['maskResolutionY', preset.maskResolutionY]
+    ] as const) {
+      if (!Number.isSafeInteger(value) || (value as number) < 1 || (value as number) > 16384) {
+        errors.push(m.range(field, 1, 16384));
+      }
+    }
+  }
   return errors;
 }
 

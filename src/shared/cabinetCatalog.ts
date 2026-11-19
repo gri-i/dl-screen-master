@@ -67,6 +67,8 @@ export function parseCabinetCatalog(raw: unknown, lang: Lang = 'ru'): CabinetPre
       pixelPitchMm: preset.pixelPitchMm,
       resolutionX: preset.resolutionX,
       resolutionY: preset.resolutionY,
+      maskResolutionX: preset.maskResolutionX,
+      maskResolutionY: preset.maskResolutionY,
       weightKg: preset.weightKg,
       maxPowerW: preset.maxPowerW,
       avgPowerW: preset.avgPowerW,

@@ -48,6 +48,17 @@ describe('project validation', () => {
     assert.equal(normalized.screens[0].visualSettings.showCabinetNumbers, false);
   });
 
+  it('keeps the content-mask resolution of a preset in the project file', () => {
+    const transparent = { ...preset, id: 'transparent', maskResolutionX: 256, maskResolutionY: 128 };
+    const project = parseProject({
+      format: 'dl-screen-master-project', version: 1, name: 'Mask',
+      screens: [{ ...screen, presetId: transparent.id }],
+      customPresets: [transparent]
+    });
+    assert.deepEqual(project.customPresets[0].maskResolutionX, 256);
+    assert.deepEqual(project.customPresets[0].maskResolutionY, 128);
+  });
+
   it('round-trips project-local session presets and routes', () => {
     const localPreset = { ...preset, id: 'local-b', model: 'B' };
     const project = buildProjectSnapshot({

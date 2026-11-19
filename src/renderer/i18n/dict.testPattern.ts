@@ -176,7 +176,8 @@ export const testPatternDict: Record<Lang, Dict> = {
     'tpv.dataPath.summaryOverloadPart': ' · перегружено портов: {count}',
 
     // Screen details
-    'tpv.details.resolution': 'Разрешение:',
+    'tpv.details.resolution': 'Разрешение маски:',
+    'tpv.details.physicalResolution': 'Физическое разрешение:',
     'tpv.details.physicalSize': 'Физический размер:',
     'tpv.details.pixelPitch': 'Шаг пикселя:',
     'tpv.details.layout': 'Раскладка:',
@@ -382,7 +383,8 @@ export const testPatternDict: Record<Lang, Dict> = {
     'tpv.dataPath.summary': 'Assigned {assigned} of {installed} cabinets{overloadPart}',
     'tpv.dataPath.summaryOverloadPart': ' · overloaded ports: {count}',
 
-    'tpv.details.resolution': 'Resolution:',
+    'tpv.details.resolution': 'Mask resolution:',
+    'tpv.details.physicalResolution': 'Physical resolution:',
     'tpv.details.physicalSize': 'Physical size:',
     'tpv.details.pixelPitch': 'Pixel pitch:',
     'tpv.details.layout': 'Layout:',

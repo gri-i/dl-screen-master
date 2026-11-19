@@ -2,14 +2,15 @@ import React, { useEffect, useState } from 'react';
 import type { CabinetPreset, PowerGridConfig, UiSkin } from '@shared/types';
 import type { Lang } from '@shared/lang';
 import { mergeUniquePresets, validatePreset } from '@shared/presetValidation';
+import { cabinetMaskSize } from '@shared/cabinetMask';
 import { useLanguage } from './i18n/context';
 import { isDesktop } from './platform';
 import './styles.css';
 
 const INITIAL_FORM = {
   brand: '', model: '', widthMm: 500, heightMm: 500, pixelPitchMm: 3.9,
-  resolutionX: 128, resolutionY: 128, weightKg: 6, maxPowerW: 200, avgPowerW: 80,
-  receiverCardName: ''
+  resolutionX: 128, resolutionY: 128, maskResolutionX: 0, maskResolutionY: 0,
+  weightKg: 6, maxPowerW: 200, avgPowerW: 80, receiverCardName: ''
 };
 
 const UI_SKIN_OPTIONS: { id: UiSkin; labelKey: string; accent: string; bg: string }[] = [
@@ -82,11 +83,22 @@ export function SettingsApp({
     event.preventDefault();
     if (!form.brand.trim() || !form.model.trim()) return;
     const id = editingPresetId ?? `custom-${form.brand}-${form.model}-${Date.now()}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const maskResolutionX = Math.round(Number(form.maskResolutionX) || 0);
+    const maskResolutionY = Math.round(Number(form.maskResolutionY) || 0);
+    const hasMask = maskResolutionX > 0 || maskResolutionY > 0;
     const preset: CabinetPreset = {
       id,
-      ...form,
       brand: form.brand.trim(),
       model: form.model.trim(),
+      widthMm: form.widthMm,
+      heightMm: form.heightMm,
+      pixelPitchMm: form.pixelPitchMm,
+      resolutionX: form.resolutionX,
+      resolutionY: form.resolutionY,
+      ...(hasMask ? { maskResolutionX, maskResolutionY } : {}),
+      weightKg: form.weightKg,
+      maxPowerW: form.maxPowerW,
+      avgPowerW: form.avgPowerW,
       receiverCardName: form.receiverCardName.trim() || undefined
     };
     const errors = validatePreset(preset, lang);
@@ -121,6 +133,8 @@ export function SettingsApp({
       pixelPitchMm: preset.pixelPitchMm,
       resolutionX: preset.resolutionX,
       resolutionY: preset.resolutionY,
+      maskResolutionX: preset.maskResolutionX ?? 0,
+      maskResolutionY: preset.maskResolutionY ?? 0,
       weightKg: preset.weightKg,
       maxPowerW: preset.maxPowerW,
       avgPowerW: preset.avgPowerW,
@@ -301,6 +315,12 @@ export function SettingsApp({
                     resolutionX: preset.resolutionX, resolutionY: preset.resolutionY,
                     pitch: preset.pixelPitchMm
                   })}
+                  {(() => {
+                    const mask = cabinetMaskSize(preset);
+                    return mask.width !== preset.resolutionX || mask.height !== preset.resolutionY
+                      ? <small>{t('settings.library.maskSummary', { maskX: mask.width, maskY: mask.height })}</small>
+                      : null;
+                  })()}
                   {preset.receiverCardName && <small>{t('settings.library.receiverCard', { name: preset.receiverCardName })}</small>}
                 </span>
                 <span className="preset-item-actions">
@@ -320,6 +340,9 @@ export function SettingsApp({
           <label>{t('settings.form.pixelPitch')}<input type="number" step="0.1" value={form.pixelPitchMm} onChange={(e) => updateField('pixelPitchMm', e.target.value)} /></label>
           <label>{t('settings.form.resolutionX')}<input type="number" value={form.resolutionX} onChange={(e) => updateField('resolutionX', e.target.value)} /></label>
           <label>{t('settings.form.resolutionY')}<input type="number" value={form.resolutionY} onChange={(e) => updateField('resolutionY', e.target.value)} /></label>
+          <label>{t('settings.form.maskResolutionX')}<input type="number" min={0} value={form.maskResolutionX} onChange={(e) => updateField('maskResolutionX', e.target.value)} title={t('settings.form.maskResolutionHint')} /></label>
+          <label>{t('settings.form.maskResolutionY')}<input type="number" min={0} value={form.maskResolutionY} onChange={(e) => updateField('maskResolutionY', e.target.value)} title={t('settings.form.maskResolutionHint')} /></label>
+          <p className="field-hint">{t('settings.form.maskResolutionHint')}</p>
           <label>{t('settings.form.widthMm')}<input type="number" value={form.widthMm} onChange={(e) => updateField('widthMm', e.target.value)} title={t('settings.form.widthMmHint')} /></label>
           <label>{t('settings.form.heightMm')}<input type="number" value={form.heightMm} onChange={(e) => updateField('heightMm', e.target.value)} title={t('settings.form.heightMmHint')} /></label>
           <label>{t('settings.form.weightKg')}<input type="number" step="0.1" value={form.weightKg} onChange={(e) => updateField('weightKg', e.target.value)} /></label>

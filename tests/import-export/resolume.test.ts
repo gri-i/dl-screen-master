@@ -35,6 +35,25 @@ describe('Resolume export', () => {
     assert.deepEqual(result?.rotatedScreens, ['Synthetic screen']);
   });
 
+  it('keeps the composition in mask pixels and the output in physical pixels', () => {
+    const screen = syntheticScreen({
+      preset: {
+        ...syntheticScreen().preset,
+        widthMm: 1000, heightMm: 500, resolutionX: 256, resolutionY: 64,
+        maskResolutionX: 256, maskResolutionY: 128
+      },
+      cols: 2, rows: 2, width: 512, height: 256
+    });
+    const result = buildResolumeXml('Mask fixture', [screen]);
+
+    if (result === null) throw new Error('Expected a Resolume export result');
+    assert.equal(result.compositionWidth, 512);
+    assert.equal(result.compositionHeight, 256);
+    assert.ok(result.xml.includes('<CurrentCompositionTextureSize width="512" height="256"/>'));
+    // 2 × 2 кабинета: маска 512 × 256, физический растр 512 × 128.
+    assert.ok(result.xml.includes('width="512" height="128"'));
+  });
+
   it('returns no export for a screen without assigned ports', () => {
     const screen = syntheticScreen({
       processor: {

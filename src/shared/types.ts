@@ -12,8 +12,16 @@ export interface CabinetPreset {
   widthMm: number;         // ширина кабинета, мм
   heightMm: number;        // высота кабинета, мм
   pixelPitchMm: number;    // шаг пикселя, мм (напр. 2.9)
-  resolutionX: number;     // разрешение по X на кабинет, px
-  resolutionY: number;     // разрешение по Y на кабинет, px
+  resolutionX: number;     // физическое разрешение по X на кабинет (что ведёт приёмная карта), px
+  resolutionY: number;     // физическое разрешение по Y на кабинет (что ведёт приёмная карта), px
+  /**
+   * Разрешение полотна маски (контента) на кабинет, px. Не задано — маска
+   * строится из физических пропорций кабинета (см. shared/cabinetMask).
+   * Загрузка порта контроллера всегда считается по физическому разрешению
+   * resolutionX × resolutionY, а не по этому полю.
+   */
+  maskResolutionX?: number;
+  maskResolutionY?: number;
   weightKg: number;        // вес одного кабинета, кг
   maxPowerW: number;       // максимальное потребление, Вт (пиковое)
   avgPowerW: number;       // среднее потребление, Вт (обычно ~40-50% от max)

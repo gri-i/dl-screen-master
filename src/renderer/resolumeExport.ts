@@ -11,11 +11,13 @@
  *
  * Что пишется:
  *  - композиция = ограничивающий прямоугольник всех экспортируемых экранов на
- *    рабочей области (в нативных пикселях);
+ *    рабочей области (в пикселях маски/контента);
  *  - Screen на каждый экран с назначенным контроллером, Virtual-устройство
- *    размером с растр процессора (bbox его портов);
- *  - Slice на каждый порт: InputRect — область порта в композиции, OutputRect —
- *    то же в растре процессора, Warper — единичная сетка.
+ *    размером с растр процессора (bbox его портов, физические пиксели);
+ *  - Slice на каждый порт: InputRect — область порта в композиции (маска),
+ *    OutputRect — то же в растре процессора (физическое разрешение), Warper —
+ *    единичная сетка. Для кабинета 256×64 с маской 256×128 контент приходит
+ *    в композицию как 256×128 и ужимается в физические 256×64 на выходе.
  *
  * Повёрнутые экраны: InputRect берётся в координатах композиции (после
  * поворота), OutputRect — в растре процессора без поворота. Ориентацию вершин
@@ -23,6 +25,7 @@
  * `rotatedScreens` — поворот на выходе нужно задать в Resolume самому.
  */
 import type { ExportScreen } from './projectExport';
+import { cabinetMaskSize } from '@shared/cabinetMask';
 
 const ARENA_VERSION = { name: 'Resolume Arena', majorVersion: 7, minorVersion: 27, microVersion: 0, revision: 14395 };
 
@@ -130,25 +133,36 @@ export function buildResolumeXml(projectName: string, screens: ExportScreen[]): 
 
   const screenBlocks = placed.map((screen) => {
     const { preset } = screen;
-    const unrotatedW = screen.cols * preset.resolutionX;
-    const unrotatedH = screen.rows * preset.resolutionY;
+    const mask = cabinetMaskSize(preset);
+    // InputRect живёт в композиции (маска/контент), OutputRect — в растре
+    // процессора и всегда в физических пикселях кабинета.
+    const unrotatedMaskW = screen.cols * mask.width;
+    const unrotatedMaskH = screen.rows * mask.height;
     const chains: Chain[] = [];
     for (const port of screen.processor!.ports) {
-      const rects = port.assignedCabinets.map((key) => {
+      const maskRects = port.assignedCabinets.map((key) => {
+        const [col, row] = key.split('-').map(Number);
+        return { x: col * mask.width, y: row * mask.height, width: mask.width, height: mask.height };
+      });
+      const physicalRects = port.assignedCabinets.map((key) => {
         const [col, row] = key.split('-').map(Number);
         return { x: col * preset.resolutionX, y: row * preset.resolutionY, width: preset.resolutionX, height: preset.resolutionY };
       });
-      if (rects.length === 0) continue;
-      const x0 = Math.min(...rects.map((r) => r.x));
-      const y0 = Math.min(...rects.map((r) => r.y));
-      const x1 = Math.max(...rects.map((r) => r.x + r.width));
-      const y1 = Math.max(...rects.map((r) => r.y + r.height));
-      const bounds = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
-      const rotated = rotateRect(bounds, screen.rotation, unrotatedW, unrotatedH);
+      if (maskRects.length === 0) continue;
+      const boundsOf = (rects: Rect[]): Rect => {
+        const x0 = Math.min(...rects.map((r) => r.x));
+        const y0 = Math.min(...rects.map((r) => r.y));
+        const x1 = Math.max(...rects.map((r) => r.x + r.width));
+        const y1 = Math.max(...rects.map((r) => r.y + r.height));
+        return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+      };
+      const maskBounds = boundsOf(maskRects);
+      const physicalBounds = boundsOf(physicalRects);
+      const rotated = rotateRect(maskBounds, screen.rotation, unrotatedMaskW, unrotatedMaskH);
       chains.push({
         name: `${screen.name} ${port.controllerName ?? screen.processor!.model} ${port.sourcePortName ?? port.portId}`.trim(),
         input: { ...rotated, x: rotated.x + screen.x - compX, y: rotated.y + screen.y - compY },
-        output: bounds
+        output: physicalBounds
       });
     }
     // Растр процессора — bbox его портов; выход сдвигаем в его начало.

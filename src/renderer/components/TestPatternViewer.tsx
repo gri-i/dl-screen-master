@@ -10,6 +10,7 @@ import type {
   SignalFormat
 } from '@shared/types';
 import { portLoad, portMaxPixels } from '@shared/capacity';
+import { cabinetMaskSize, cabinetPhysicalPixels } from '@shared/cabinetMask';
 import { powerPlanLoads } from '@shared/calculations';
 import {
   checkControllerCanvas,
@@ -228,8 +229,9 @@ function screenDisplaySize(
   rows: number,
   rotation: 0 | 90 | 180 | 270
 ): { width: number; height: number } {
-  const width = preset.resolutionX * cols * WORKSPACE_PX_PER_PIXEL;
-  const height = preset.resolutionY * rows * WORKSPACE_PX_PER_PIXEL;
+  const mask = cabinetMaskSize(preset);
+  const width = mask.width * cols * WORKSPACE_PX_PER_PIXEL;
+  const height = mask.height * rows * WORKSPACE_PX_PER_PIXEL;
   return rotation === 90 || rotation === 270 ? { width: height, height: width } : { width, height };
 }
 
@@ -306,19 +308,20 @@ function scaledLabelFontSize(baseSize: number, width: number, height: number): n
 }
 
 function renderProjectPreview(screen: ScreenInstance, preset: CabinetPreset): string {
+  const mask = cabinetMaskSize(preset);
   const canvas = document.createElement('canvas');
-  canvas.width = preset.resolutionX * screen.cols;
-  canvas.height = preset.resolutionY * screen.rows;
+  canvas.width = mask.width * screen.cols;
+  canvas.height = mask.height * screen.rows;
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
   const settings = screen.visualSettings;
   const effectiveLabelFontSize = scaledLabelFontSize(settings.labelFontSize, canvas.width, canvas.height);
   drawPattern(ctx, canvas.width, canvas.height, settings.config, {
-    checkerCellWidthPx: preset.resolutionX,
-    checkerCellHeightPx: preset.resolutionY
+    checkerCellWidthPx: mask.width,
+    checkerCellHeightPx: mask.height
   });
   if (settings.showCabinetGrid) {
-    drawCabinetGrid(ctx, preset.resolutionX, preset.resolutionY, screen.cols, screen.rows);
+    drawCabinetGrid(ctx, mask.width, mask.height, screen.cols, screen.rows);
   }
   if (settings.screenLabel) {
     ctx.save();
@@ -343,7 +346,7 @@ function renderProjectPreview(screen: ScreenInstance, preset: CabinetPreset): st
   }
   for (const key of screen.emptyCabinetKeys) {
     const [col, row] = key.split('-').map(Number);
-    ctx.clearRect(col * preset.resolutionX, row * preset.resolutionY, preset.resolutionX, preset.resolutionY);
+    ctx.clearRect(col * mask.width, row * mask.height, mask.width, mask.height);
   }
   return canvas.toDataURL('image/png');
 }
@@ -487,8 +490,14 @@ export function TestPatternViewer({
     setHistoryRevision((value) => value + 1);
   }
 
-  const widthPx = preset.resolutionX * cols;
-  const heightPx = preset.resolutionY * rows;
+  // Маска (контент) рисуется по maskResolution, а не по физическому
+  // разрешению кабинета: у прозрачного 256×64 кабинета полотно 256×128,
+  // иначе контент сжимается по вертикали.
+  const maskSize = cabinetMaskSize(preset);
+  const widthPx = maskSize.width * cols;
+  const heightPx = maskSize.height * rows;
+  const physicalWidthPx = preset.resolutionX * cols;
+  const physicalHeightPx = preset.resolutionY * rows;
   const widthMm = preset.widthMm * cols;
   const heightMm = preset.heightMm * rows;
   const displayWidthPx = widthPx * WORKSPACE_PX_PER_PIXEL;
@@ -720,7 +729,7 @@ export function TestPatternViewer({
   function drawCabinetNumbers(ctx: CanvasRenderingContext2D): void {
     if (!showCabinetNumbers) return;
 
-    const fontSize = Math.max(12, Math.min(40, Math.min(preset.resolutionX, preset.resolutionY) * 0.14));
+    const fontSize = Math.max(12, Math.min(40, Math.min(maskSize.width, maskSize.height) * 0.14));
     const padding = Math.max(6, fontSize * 0.35);
 
     ctx.save();
@@ -734,8 +743,8 @@ export function TestPatternViewer({
         if (screenConfig.emptyCabinetKeys.includes(`${col}-${row}`)) continue;
         ctx.fillText(
           `${row + 1}.${col + 1}`,
-          col * preset.resolutionX + padding,
-          row * preset.resolutionY + padding
+          col * maskSize.width + padding,
+          row * maskSize.height + padding
         );
       }
     }
@@ -758,7 +767,7 @@ export function TestPatternViewer({
     ctx.stroke();
 
     const centerRadius = Math.max(0, (Math.min(widthPx, heightPx) - lineWidth) / 2);
-    const cabinetResolution = Math.max(1, Math.min(preset.resolutionX, preset.resolutionY));
+    const cabinetResolution = Math.max(1, Math.min(maskSize.width, maskSize.height));
     // Верхний и нижний (или левый и правый) круги стоят на одной стороне
     // экрана на расстоянии друг от друга в sideDiameter от каждого края —
     // чтобы они не пересекались, диаметр не должен быть больше половины
@@ -806,13 +815,13 @@ export function TestPatternViewer({
   ): void {
     ctx.clearRect(0, 0, widthPx, heightPx);
     drawPattern(ctx, widthPx, heightPx, patternConfig, {
-      checkerCellWidthPx: preset.resolutionX,
-      checkerCellHeightPx: preset.resolutionY
+      checkerCellWidthPx: maskSize.width,
+      checkerCellHeightPx: maskSize.height
     });
     drawTestGrid(ctx);
 
     if (includeGrid && showCabinetGrid) {
-      drawCabinetGrid(ctx, preset.resolutionX, preset.resolutionY, cols, rows);
+      drawCabinetGrid(ctx, maskSize.width, maskSize.height, cols, rows);
     }
     drawCabinetNumbers(ctx);
     drawOverlays(ctx, logoRef.current, label);
@@ -821,20 +830,20 @@ export function TestPatternViewer({
       const [col, row] = key.split('-').map(Number);
       if (col < 0 || col >= cols || row < 0 || row >= rows) continue;
       ctx.clearRect(
-        col * preset.resolutionX,
-        row * preset.resolutionY,
-        preset.resolutionX,
-        preset.resolutionY
+        col * maskSize.width,
+        row * maskSize.height,
+        maskSize.width,
+        maskSize.height
       );
       if (includeGrid) {
         ctx.strokeStyle = '#9ca3af';
         ctx.lineWidth = 2;
         ctx.setLineDash([8, 6]);
         ctx.strokeRect(
-          col * preset.resolutionX + 1,
-          row * preset.resolutionY + 1,
-          preset.resolutionX - 2,
-          preset.resolutionY - 2
+          col * maskSize.width + 1,
+          row * maskSize.height + 1,
+          maskSize.width - 2,
+          maskSize.height - 2
         );
         ctx.setLineDash([]);
       }
@@ -877,8 +886,14 @@ export function TestPatternViewer({
     showCabinetGrid,
     showCabinetNumbers,
     showTestGrid,
+    maskSize.width,
+    maskSize.height,
     preset.resolutionX,
     preset.resolutionY,
+    preset.widthMm,
+    preset.heightMm,
+    preset.maskResolutionX,
+    preset.maskResolutionY,
     cols,
     rows,
     screenConfig.emptyCabinetKeys,
@@ -1348,10 +1363,11 @@ export function TestPatternViewer({
 
     const screenPreset = presets.find((item) => item.id === screen.screenConfig.presetId) ?? presets[0];
     const bounds = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - bounds.left) / bounds.width) * screenPreset.resolutionX * screen.screenConfig.cols;
-    const y = ((event.clientY - bounds.top) / bounds.height) * screenPreset.resolutionY * screen.screenConfig.rows;
-    const col = Math.floor(x / screenPreset.resolutionX);
-    const row = Math.floor(y / screenPreset.resolutionY);
+    const screenMask = cabinetMaskSize(screenPreset);
+    const x = ((event.clientX - bounds.left) / bounds.width) * screenMask.width * screen.screenConfig.cols;
+    const y = ((event.clientY - bounds.top) / bounds.height) * screenMask.height * screen.screenConfig.rows;
+    const col = Math.floor(x / screenMask.width);
+    const row = Math.floor(y / screenMask.height);
 
     if (col < 0 || col >= screen.screenConfig.cols || row < 0 || row >= screen.screenConfig.rows) return;
 
@@ -1593,8 +1609,9 @@ export function TestPatternViewer({
       return renderImportedSvgPreview(importedConfig, importedPreset, name);
     }
 
-    const nativeWidth = importedPreset.resolutionX * importedConfig.cols;
-    const nativeHeight = importedPreset.resolutionY * importedConfig.rows;
+    const importedMask = cabinetMaskSize(importedPreset);
+    const nativeWidth = importedMask.width * importedConfig.cols;
+    const nativeHeight = importedMask.height * importedConfig.rows;
     const scale = Math.min(1, 2048 / nativeWidth, 2048 / nativeHeight);
     const preview = document.createElement('canvas');
     preview.width = Math.max(1, Math.round(nativeWidth * scale));
@@ -1604,14 +1621,14 @@ export function TestPatternViewer({
 
     const previewConfig = visiblePatternConfig(config);
     drawPattern(context, preview.width, preview.height, previewConfig, {
-      checkerCellWidthPx: importedPreset.resolutionX * scale,
-      checkerCellHeightPx: importedPreset.resolutionY * scale
+      checkerCellWidthPx: importedMask.width * scale,
+      checkerCellHeightPx: importedMask.height * scale
     });
     if (showCabinetGrid) {
       drawCabinetGrid(
         context,
-        importedPreset.resolutionX * scale,
-        importedPreset.resolutionY * scale,
+        importedMask.width * scale,
+        importedMask.height * scale,
         importedConfig.cols,
         importedConfig.rows
       );
@@ -1634,10 +1651,10 @@ export function TestPatternViewer({
     for (const key of importedConfig.emptyCabinetKeys) {
       const [col, row] = key.split('-').map(Number);
       context.clearRect(
-        col * importedPreset.resolutionX * scale,
-        row * importedPreset.resolutionY * scale,
-        importedPreset.resolutionX * scale,
-        importedPreset.resolutionY * scale
+        col * importedMask.width * scale,
+        row * importedMask.height * scale,
+        importedMask.width * scale,
+        importedMask.height * scale
       );
     }
     return preview.toDataURL('image/png');
@@ -1717,8 +1734,9 @@ export function TestPatternViewer({
     importedPreset: CabinetPreset,
     name: string
   ): string {
-    const nativeWidth = importedPreset.resolutionX * importedConfig.cols;
-    const nativeHeight = importedPreset.resolutionY * importedConfig.rows;
+    const importedMask = cabinetMaskSize(importedPreset);
+    const nativeWidth = importedMask.width * importedConfig.cols;
+    const nativeHeight = importedMask.height * importedConfig.rows;
     const empty = new Set(importedConfig.emptyCabinetKeys);
     const pattern = visiblePatternConfig(config);
     const palette = pattern.palette && pattern.palette.length > 1 ? pattern.palette : [pattern.colorA, pattern.colorB];
@@ -1728,12 +1746,12 @@ export function TestPatternViewer({
       for (let col = 0; col < importedConfig.cols; col += 1) {
         if (empty.has(`${col}-${row}`)) continue;
         const color = palette[(row + col) % palette.length] ?? DEFAULT_PATTERN_CONFIG.colorA;
-        cells.push(`<rect x="${col * importedPreset.resolutionX}" y="${row * importedPreset.resolutionY}" width="${importedPreset.resolutionX}" height="${importedPreset.resolutionY}" fill="${color}"/>`);
+        cells.push(`<rect x="${col * importedMask.width}" y="${row * importedMask.height}" width="${importedMask.width}" height="${importedMask.height}" fill="${color}"/>`);
       }
     }
 
     const grid = showCabinetGrid
-      ? `<g fill="none" stroke="#ffffff" stroke-width="${Math.max(2, Math.round(Math.min(importedPreset.resolutionX, importedPreset.resolutionY) * 0.008))}" opacity=".85">${Array.from({ length: importedConfig.cols + 1 }, (_, col) => `<path d="M${col * importedPreset.resolutionX} 0V${nativeHeight}"/>`).join('')}${Array.from({ length: importedConfig.rows + 1 }, (_, row) => `<path d="M0 ${row * importedPreset.resolutionY}H${nativeWidth}"/>`).join('')}</g>`
+      ? `<g fill="none" stroke="#ffffff" stroke-width="${Math.max(2, Math.round(Math.min(importedMask.width, importedMask.height) * 0.008))}" opacity=".85">${Array.from({ length: importedConfig.cols + 1 }, (_, col) => `<path d="M${col * importedMask.width} 0V${nativeHeight}"/>`).join('')}${Array.from({ length: importedConfig.rows + 1 }, (_, row) => `<path d="M0 ${row * importedMask.height}H${nativeWidth}"/>`).join('')}</g>`
       : '';
     const labelSize = Math.max(34, Math.min(nativeWidth, nativeHeight) * 0.08);
     const label = `<text x="${nativeWidth / 2}" y="${nativeHeight / 2}" fill="${fullBrightnessColor(textColor)}" stroke="rgba(0,0,0,.85)" stroke-width="${Math.max(3, labelSize * 0.08)}" paint-order="stroke" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="${labelSize}" font-weight="700">${escapeSvgText(name)}</text>`;
@@ -1771,8 +1789,9 @@ export function TestPatternViewer({
           : screen.preset;
         if (!screen.matchedExistingPreset) newPresetsById.set(finalPreset.id, finalPreset);
         const screenConfig: ScreenConfig = { ...screen.config, presetId: finalPreset.id };
-        const width = screenConfig.cols * finalPreset.resolutionX * WORKSPACE_PX_PER_PIXEL;
-        const height = screenConfig.rows * finalPreset.resolutionY * WORKSPACE_PX_PER_PIXEL;
+        const finalMask = cabinetMaskSize(finalPreset);
+        const width = screenConfig.cols * finalMask.width * WORKSPACE_PX_PER_PIXEL;
+        const height = screenConfig.rows * finalMask.height * WORKSPACE_PX_PER_PIXEL;
         const visualSettings = {
           ...currentVisualSettings(),
           config: visiblePatternConfig(config),
@@ -1834,8 +1853,9 @@ export function TestPatternViewer({
     screenPreset: CabinetPreset
   ): void {
     if (!screen.processor) return;
-    const cabinetWidth = screenPreset.resolutionX;
-    const cabinetHeight = screenPreset.resolutionY;
+    const screenMask = cabinetMaskSize(screenPreset);
+    const cabinetWidth = screenMask.width;
+    const cabinetHeight = screenMask.height;
     const unit = Math.min(cabinetWidth, cabinetHeight);
 
     screen.processor.ports.forEach((port, portIndex) => {
@@ -2185,7 +2205,7 @@ export function TestPatternViewer({
     return source ? routeProcessor(
       source,
       autoRoutingOrder,
-      selectedDataPreset.resolutionX * selectedDataPreset.resolutionY,
+      cabinetPhysicalPixels(selectedDataPreset),
       signal
     ) : null;
   }, [selectedDataScreen?.processor, selectedDataPreset, autoRoutingOrder, newControllerModel, newControllerSendingCards, signal]);
@@ -2726,7 +2746,7 @@ export function TestPatternViewer({
                   {dataPortsBySendingCard(selectedDataScreen.processor.ports).map((group) => (
                     <section className="sending-card-group" key={group.key}>
                       {(() => {
-                        const pixelsPerCabinet = (selectedDataPreset?.resolutionX ?? 0) * (selectedDataPreset?.resolutionY ?? 0);
+                        const pixelsPerCabinet = (selectedDataPreset ? cabinetPhysicalPixels(selectedDataPreset) : 0);
                         const loads = group.ports.map((port) => portLoad(port, pixelsPerCabinet, signal));
                         const usedPorts = loads.filter((load) => load.pixels > 0).length;
                         const overPorts = loads.filter((load) => load.status === 'over').length;
@@ -2739,7 +2759,7 @@ export function TestPatternViewer({
                       })()}
                       {group.ports.map((port) => {
                     const portIndex = selectedDataScreen.processor!.ports.indexOf(port);
-                    const load = portLoad(port, (selectedDataPreset?.resolutionX ?? 0) * (selectedDataPreset?.resolutionY ?? 0), signal);
+                    const load = portLoad(port, (selectedDataPreset ? cabinetPhysicalPixels(selectedDataPreset) : 0), signal);
                     const portColor = `hsl(${routeHue(portIndex)} 78% 55%)`;
                     const fps = load.maxFrameRateHz !== null && load.maxFrameRateHz < 1000 ? ` · ≤${Math.floor(load.maxFrameRateHz)} fps` : '';
                     return (
@@ -2769,7 +2789,7 @@ export function TestPatternViewer({
                 {(() => {
                   const installed = selectedDataScreen.screenConfig.cols * selectedDataScreen.screenConfig.rows - selectedDataScreen.screenConfig.emptyCabinetKeys.length;
                   const assigned = new Set(selectedDataScreen.processor?.ports.flatMap((port) => port.assignedCabinets) ?? []).size;
-                  const pixelsPerCabinet = (selectedDataPreset?.resolutionX ?? 0) * (selectedDataPreset?.resolutionY ?? 0);
+                  const pixelsPerCabinet = (selectedDataPreset ? cabinetPhysicalPixels(selectedDataPreset) : 0);
                   const overloaded = selectedDataScreen.processor?.ports.filter((port) =>
                     port.assignedCabinets.length * pixelsPerCabinet > portMaxPixels(port, signal) ||
                     (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets)
@@ -2859,6 +2879,9 @@ export function TestPatternViewer({
 
           <div className="screen-details">
             <div><b>{t('tpv.details.resolution')}</b> {widthPx} × {heightPx} px</div>
+            {(maskSize.width !== preset.resolutionX || maskSize.height !== preset.resolutionY) && (
+              <div><b>{t('tpv.details.physicalResolution')}</b> {physicalWidthPx} × {physicalHeightPx} px</div>
+            )}
             <div><b>{t('tpv.details.physicalSize')}</b> {(widthMm / 1000).toFixed(2)} × {(heightMm / 1000).toFixed(2)} м</div>
             <div><b>{t('tpv.details.pixelPitch')}</b> {preset.pixelPitchMm} мм</div>
             <div><b>{t('tpv.details.layout')}</b> {cols} × {rows}{t('tpv.details.layoutCabinetsSuffix')}</div>
@@ -2982,8 +3005,9 @@ export function TestPatternViewer({
                     // viewBox в нативных пикселях кабинета (а не в "кабинетных" единицах 1×1) —
                     // иначе у прямоугольных (не квадратных) кабинетов svg растягивается по
                     // большей оси и оверлей пути съезжает относительно реального изображения.
-                    const cellW = screenPreset.resolutionX;
-                    const cellH = screenPreset.resolutionY;
+                    const screenMask = cabinetMaskSize(screenPreset);
+                    const cellW = screenMask.width;
+                    const cellH = screenMask.height;
                     const unit = Math.min(cellW, cellH);
                     return (
                       <svg
@@ -3012,7 +3036,7 @@ export function TestPatternViewer({
                           const points = centers.map((point) => `${point.x},${point.y}`).join(' ');
                           const first = port.assignedCabinets[0]?.split('-').map(Number);
                           const last = port.assignedCabinets.at(-1)?.split('-').map(Number);
-                          const portPixels = port.assignedCabinets.length * screenPreset.resolutionX * screenPreset.resolutionY;
+                          const portPixels = port.assignedCabinets.length * cabinetPhysicalPixels(screenPreset);
                           const overloaded = portPixels > portMaxPixels(port, signal) || (port.maxCabinets !== undefined && port.assignedCabinets.length > port.maxCabinets);
                           const color = overloaded ? '#dc2626' : `hsl(${routeHue(portIndex)} 78% 38%)`;
                           return (
@@ -3053,8 +3077,9 @@ export function TestPatternViewer({
                     const overlayHeight = screen.rotation === 90 || screen.rotation === 270 ? screen.width : screen.height;
                     const screenPreset = presets.find((item) => item.id === screen.screenConfig.presetId) ?? presets[0];
                     // См. комментарий в data-path overlay выше — viewBox в нативных px кабинета.
-                    const cellW = screenPreset.resolutionX;
-                    const cellH = screenPreset.resolutionY;
+                    const screenMask = cabinetMaskSize(screenPreset);
+                    const cellW = screenMask.width;
+                    const cellH = screenMask.height;
                     const unit = Math.min(cellW, cellH);
                     const usablePowerW = usablePowerPerPortW(
                       screen.powerPlan.voltage,
