@@ -4,6 +4,7 @@ import type { Lang } from './lang';
 import type {
   CabinetPreset,
   OverlayPosition,
+  PowerBox,
   PowerCircuit,
   PowerPlan,
   Processor,
@@ -325,6 +326,34 @@ function parsePowerPlan(value: unknown, field: string, screen: { cols: number; r
   const safetyMarginPercent = finite(value.safetyMarginPercent, `${field}.safetyMarginPercent`, messages, errors, 0, 100);
   const powerFactor = finite(value.powerFactor, `${field}.powerFactor`, messages, errors, .01, 1);
   const phases = enumValue<PowerPlan['phases']>(value.phases, `${field}.phases`, [1, 3] as const, messages, errors, 1);
+  const boxesValue = arrayValue(value.boxes, `${field}.boxes`, messages, errors, true);
+  const boxes: PowerBox[] = [];
+  const boxIds = new Set<string>();
+  for (const [index, raw] of boxesValue.entries()) {
+    const boxField = `${field}.boxes[${index}]`;
+    if (!isRecord(raw)) {
+      errors.push(`${boxField}: ${messages.object}`);
+      continue;
+    }
+    const id = text(raw.id, `${boxField}.id`, messages, errors);
+    const name = text(raw.name, `${boxField}.name`, messages, errors);
+    const input = text(raw.input, `${boxField}.input`, messages, errors, false);
+    const circuitIds: string[] = [];
+    for (const [circuitIndex, rawId] of arrayValue(raw.circuits, `${boxField}.circuits`, messages, errors, true).entries()) {
+      if (typeof rawId !== 'string' || !rawId) {
+        errors.push(`${boxField}.circuits[${circuitIndex}]: ${messages.type('circuit id', 'text')}`);
+        continue;
+      }
+      circuitIds.push(rawId);
+    }
+    if (!id || !name) continue;
+    if (boxIds.has(id)) {
+      errors.push(messages.duplicate(`${field}.boxes.id`, id));
+      continue;
+    }
+    boxIds.add(id);
+    boxes.push({ id, name, circuits: circuitIds, ...(input ? { input } : {}) });
+  }
   const circuitsValue = arrayValue(value.circuits, `${field}.circuits`, messages, errors);
   const used = new Set<string>();
   const circuits: PowerCircuit[] = [];
@@ -338,10 +367,23 @@ function parsePowerPlan(value: unknown, field: string, screen: { cols: number; r
     const name = text(raw.name, `${circuitField}.name`, messages, errors);
     const phase = enumValue(raw.phase, `${circuitField}.phase`, ['L1', 'L2', 'L3'] as const, messages, errors, 'L1');
     const assignedCabinets = routeKeys(raw.assignedCabinets, `${circuitField}.assignedCabinets`, screen.cols, screen.rows, screen.empty, used, messages, errors);
-    if (id && name) circuits.push({ id, name, phase, assignedCabinets });
+    const box = text(raw.box, `${circuitField}.box`, messages, errors, false);
+    if (id && name) circuits.push({ id, name, phase, assignedCabinets, ...(box && boxIds.has(box) ? { box } : {}) });
+  }
+  // Коробка хранит список своих цепей для сводки и сохранения. Если в старом
+  // проекте у цепи нет поля box, но id есть в списке коробки — восстанавливаем
+  // связь; затем пересобираем список из фактических цепей, чтобы не тащить
+  // удалённые/битые id.
+  const circuitsById = new Map(circuits.map((circuit) => [circuit.id, circuit]));
+  for (const box of boxes) {
+    for (const circuitId of box.circuits) {
+      const circuit = circuitsById.get(circuitId);
+      if (circuit && !circuit.box) circuit.box = box.id;
+    }
+    box.circuits = circuits.filter((circuit) => circuit.box === box.id).map((circuit) => circuit.id);
   }
   if (voltage === undefined || circuitBreakerAmps === undefined || safetyMarginPercent === undefined || powerFactor === undefined) return undefined;
-  return { voltage, circuitBreakerAmps, safetyMarginPercent, powerFactor, phases, circuits };
+  return { voltage, circuitBreakerAmps, safetyMarginPercent, powerFactor, phases, circuits, ...(boxes.length ? { boxes } : {}) };
 }
 
 function parseSignal(value: unknown, messages: ValidationMessages, errors: string[]): SignalFormat | undefined {

@@ -109,6 +109,71 @@ export function PowerPathPlanner({
     onChange({ ...value, circuits: value.circuits.map((circuit) => ({ ...circuit, assignedCabinets: [] })) });
   }
 
+  /** Очищает расключение только выбранного порта (цепи) коробки. */
+  function clearActiveCircuit(): void {
+    if (!activeCircuitId) return;
+    onChange({
+      ...value,
+      circuits: value.circuits.map((circuit) => circuit.id === activeCircuitId
+        ? { ...circuit, assignedCabinets: [] }
+        : circuit)
+    });
+  }
+
+  /** Удаляет коробку вместе со всеми её цепями; остальные коробки не трогает. */
+  function removePowerBox(boxId: string): void {
+    const boxes = value.boxes ?? [];
+    if (!boxes.some((box) => box.id === boxId)) return;
+    const circuits = value.circuits.filter((circuit) => circuit.box !== boxId);
+    onChange({ ...value, circuits, boxes: boxes.filter((box) => box.id !== boxId) });
+    if (activeCircuitId && value.circuits.some((circuit) => circuit.id === activeCircuitId && circuit.box === boxId)) {
+      onActiveCircuitChange(circuits[0]?.id ?? null);
+    }
+    if (circuits.length === 0) onEditingChange(false);
+  }
+
+  const activeCircuit = value.circuits.find((circuit) => circuit.id === activeCircuitId) ?? null;
+  const boxes = value.boxes ?? [];
+  const boxIds = new Set(boxes.map((box) => box.id));
+  const looseCircuits = value.circuits.filter((circuit) => !circuit.box || !boxIds.has(circuit.box));
+  const circuitIndex = new Map(value.circuits.map((circuit, index) => [circuit.id, index]));
+
+  function renderCircuit(circuit: PowerCircuit): JSX.Element {
+    const index = circuitIndex.get(circuit.id) ?? 0;
+    const { watts, percent: load, status } = circuitLoad(circuit.assignedCabinets.length, preset.maxPowerW, usablePowerW);
+    const amps = circuit.assignedCabinets.length * cabinetAmps;
+    const remainingCabinets = maxCabinetsPerCircuit === null ? null : Math.max(0, maxCabinetsPerCircuit - circuit.assignedCabinets.length);
+    return (
+      <button
+        key={circuit.id}
+        type="button"
+        className={`power-circuit is-${status}${activeCircuitId === circuit.id ? ' is-active' : ''}${circuit.assignedCabinets.length === 0 ? ' is-empty' : ''}`}
+        onClick={() => onActiveCircuitChange(circuit.id)}
+        style={{ '--circuit-color': routeColor(index) } as React.CSSProperties}
+      >
+        <span className="power-circuit-heading">
+          <i className="power-circuit-swatch" />
+          <b>{circuit.name}{boxName(circuit) ? ` · ${boxName(circuit)}` : ''} · {circuit.phase}</b>
+          {remainingCabinets !== null && <em>{status === 'over' ? `${t('pp.overload')} ` : ''}{load}%</em>}
+        </span>
+        {remainingCabinets === null ? (
+          <span className="power-circuit-stats">{t('pp.noCabinetPower')}</span>
+        ) : (
+          <>
+            <span className="power-circuit-meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={load} aria-label={t('pp.loadPercent', { load })}>
+              <i style={{ width: `${Math.min(load, 100)}%` }} />
+            </span>
+            <span className="power-circuit-stats">
+              {t('pp.circuitStats', { count: circuit.assignedCabinets.length, max: maxCabinetsPerCircuit ?? 0, remaining: remainingCabinets })}
+              {' · '}{t('pp.circuitKw', { used: (watts / 1000).toFixed(2), total: (usablePowerW / 1000).toFixed(2) })}
+              {' · '}{t('pp.circuitAmps', { amps: amps.toFixed(2), limit: POWER_PORT_MAX_W / 1000 })}
+            </span>
+          </>
+        )}
+      </button>
+    );
+  }
+
   const assigned = new Set(value.circuits.flatMap((circuit) => circuit.assignedCabinets)).size;
   const phaseAmps = PHASES.map((phase) => value.circuits
     .filter((circuit) => circuit.phase === phase)
@@ -140,6 +205,14 @@ export function PowerPathPlanner({
         <button type="button" onClick={addCircuit}>{t('pp.addCircuit')}</button>
         <button type="button" onClick={addPowerDistroBox} title={t('pp.addDistroBoxTitle')}>{t('pp.addDistroBox')}</button>
         <button type="button" onClick={clearCircuits}>{t('pp.clear')}</button>
+        <button
+          type="button"
+          onClick={clearActiveCircuit}
+          disabled={!activeCircuit || activeCircuit.assignedCabinets.length === 0}
+          title={t('pp.clearPortTitle')}
+        >
+          {t('pp.clearPort')}
+        </button>
       </div>
       {value.circuits.length > 0 && (
         <button type="button" className={isEditing ? 'is-active' : ''} onClick={() => onEditingChange(!isEditing)}>
@@ -156,42 +229,50 @@ export function PowerPathPlanner({
           })}
         </p>
       )}
-      <div className="power-circuit-list">
-        {value.circuits.map((circuit, index) => {
-          const { watts, percent: load, status } = circuitLoad(circuit.assignedCabinets.length, preset.maxPowerW, usablePowerW);
-          const amps = circuit.assignedCabinets.length * cabinetAmps;
-          const remainingCabinets = maxCabinetsPerCircuit === null ? null : Math.max(0, maxCabinetsPerCircuit - circuit.assignedCabinets.length);
-          return (
-            <button
-              key={circuit.id}
-              type="button"
-              className={`power-circuit is-${status}${activeCircuitId === circuit.id ? ' is-active' : ''}${circuit.assignedCabinets.length === 0 ? ' is-empty' : ''}`}
-              onClick={() => onActiveCircuitChange(circuit.id)}
-              style={{ '--circuit-color': routeColor(index) } as React.CSSProperties}
-            >
-              <span className="power-circuit-heading">
-                <i className="power-circuit-swatch" />
-                <b>{circuit.name}{boxName(circuit) ? ` · ${boxName(circuit)}` : ''} · {circuit.phase}</b>
-                {remainingCabinets !== null && <em>{status === 'over' ? `${t('pp.overload')} ` : ''}{load}%</em>}
-              </span>
-              {remainingCabinets === null ? (
-                <span className="power-circuit-stats">{t('pp.noCabinetPower')}</span>
-              ) : (
-                <>
-                  <span className="power-circuit-meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={load} aria-label={t('pp.loadPercent', { load })}>
-                    <i style={{ width: `${Math.min(load, 100)}%` }} />
-                  </span>
-                  <span className="power-circuit-stats">
-                    {t('pp.circuitStats', { count: circuit.assignedCabinets.length, max: maxCabinetsPerCircuit ?? 0, remaining: remainingCabinets })}
-                    {' · '}{t('pp.circuitKw', { used: (watts / 1000).toFixed(2), total: (usablePowerW / 1000).toFixed(2) })}
-                    {' · '}{t('pp.circuitAmps', { amps: amps.toFixed(2), limit: POWER_PORT_MAX_W / 1000 })}
-                  </span>
-                </>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {boxes.length === 0 ? (
+        <div className="power-circuit-list">
+          {value.circuits.map(renderCircuit)}
+        </div>
+      ) : (
+        <>
+          {boxes.map((box) => {
+            const boxCircuits = value.circuits.filter((circuit) => circuit.box === box.id);
+            const boxCabinets = boxCircuits.reduce((sum, circuit) => sum + circuit.assignedCabinets.length, 0);
+            return (
+              <section className="power-box" key={box.id}>
+                <header className="power-box-header">
+                  <div>
+                    <b>{box.name}</b>
+                    <small>{t('pp.boxStats', { cabinets: boxCabinets, ports: boxCircuits.length })}</small>
+                  </div>
+                  <button type="button" className="power-box-delete" onClick={() => removePowerBox(box.id)} title={t('pp.deleteBoxTitle')}>
+                    {t('pp.deleteBox')}
+                  </button>
+                </header>
+                <div className="power-circuit-list">
+                  {boxCircuits.map(renderCircuit)}
+                </div>
+              </section>
+            );
+          })}
+          {looseCircuits.length > 0 && (
+            <section className="power-box is-loose">
+              <header className="power-box-header">
+                <div>
+                  <b>{t('pp.looseCircuits')}</b>
+                  <small>{t('pp.boxStats', {
+                    cabinets: looseCircuits.reduce((sum, circuit) => sum + circuit.assignedCabinets.length, 0),
+                    ports: looseCircuits.length
+                  })}</small>
+                </div>
+              </header>
+              <div className="power-circuit-list">
+                {looseCircuits.map(renderCircuit)}
+              </div>
+            </section>
+          )}
+        </>
+      )}
       {(() => {
         const overloaded = value.circuits.filter((circuit) => circuit.assignedCabinets.length * preset.maxPowerW > usablePowerW).length;
         return <p className={`data-path-summary${assigned < keys.length || overloaded > 0 ? ' is-warning' : ''}`}>

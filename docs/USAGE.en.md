@@ -193,11 +193,16 @@ In the **Power path planning** block itself:
   once with one click, 2 per phase — the typical layout of a distro box
   fed by 3-phase 32A with six 16A outputs. This switches the plan to
   3-phase and a 16A breaker (the rating of the outgoing line, not the
-  box's incomer);
+  box's incomer); each box is shown as a separate group with its own
+  circuits, and **"Delete box"** removes the box together with its
+  circuits;
 - **"Draw power paths"** turns on placement mode: pick a circuit from
   the list, then click cabinets on the canvas. Each circuit's card
   shows load in % and kW, calculated current, and overload if any;
+- **"Clear port"** resets assignments only in the selected circuit (box
+  port) and leaves the other circuits untouched;
 - **"Clear"** resets assignments on every circuit without deleting them.
+  Circuits without a box are shown under "Standalone circuits".
 
 The summary line under the circuit list shows how many cabinets out of
 the total are assigned and how many circuits are overloaded.

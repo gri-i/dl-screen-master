@@ -59,6 +59,44 @@ describe('project validation', () => {
     assert.deepEqual(project.customPresets[0].maskResolutionY, 128);
   });
 
+  it('keeps power boxes and their circuit links through save/load', () => {
+    const powerPlan = {
+      voltage: 230, circuitBreakerAmps: 16, safetyMarginPercent: 20, powerFactor: .95, phases: 3 as const,
+      circuits: [
+        { id: 'c1', name: 'Circuit 1', phase: 'L1' as const, assignedCabinets: ['0-0'], box: 'b1' },
+        { id: 'c2', name: 'Circuit 2', phase: 'L2' as const, assignedCabinets: ['1-0'], box: 'b1' },
+        { id: 'c3', name: 'Standalone', phase: 'L3' as const, assignedCabinets: [] }
+      ],
+      boxes: [{ id: 'b1', name: 'Box 1', circuits: ['c1', 'c2', 'stale'], input: 'cee32_5p' }]
+    };
+    const project = parseProject({
+      format: 'dl-screen-master-project', version: 1, name: 'Boxes',
+      screens: [{ ...screen, powerPlan }],
+      customPresets: [preset]
+    });
+    assert.deepEqual(project.screens[0].powerPlan?.boxes, [
+      { id: 'b1', name: 'Box 1', circuits: ['c1', 'c2'], input: 'cee32_5p' }
+    ]);
+    assert.deepEqual(project.screens[0].powerPlan?.circuits.map((circuit) => circuit.box), ['b1', 'b1', undefined]);
+  });
+
+  it('restores the box link from a legacy box circuit list', () => {
+    const project = parseProject({
+      format: 'dl-screen-master-project', version: 1, name: 'Legacy boxes',
+      screens: [{
+        ...screen,
+        powerPlan: {
+          voltage: 230, circuitBreakerAmps: 16, safetyMarginPercent: 20, powerFactor: .95, phases: 3,
+          circuits: [{ id: 'c1', name: 'Circuit 1', phase: 'L1', assignedCabinets: ['0-0'] }],
+          boxes: [{ id: 'b1', name: 'Box 1', circuits: ['c1'] }]
+        }
+      }],
+      customPresets: [preset]
+    });
+    assert.equal(project.screens[0].powerPlan?.circuits[0].box, 'b1');
+    assert.deepEqual(project.screens[0].powerPlan?.boxes?.[0].circuits, ['c1']);
+  });
+
   it('round-trips project-local session presets and routes', () => {
     const localPreset = { ...preset, id: 'local-b', model: 'B' };
     const project = buildProjectSnapshot({
